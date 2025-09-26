@@ -315,14 +315,6 @@ export const ColumnarPlannerView: React.FC<ColumnarPlannerViewProps> = ({
               </div>
             );
           })}
-          
-          {/* Current time line */}
-          {currentTimeOffset !== null && (
-            <div 
-              className="absolute inset-x-0 border-t-2 border-primary z-30 pointer-events-none"
-              style={{ top: currentTimeOffset }}
-            />
-          )}
         </div>
       </div>
     );
