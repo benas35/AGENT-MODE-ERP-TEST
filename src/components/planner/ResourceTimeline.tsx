@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { format, addHours, startOfDay } from 'date-fns';
-import { User, Square, Car, Clock } from 'lucide-react';
+import { User, Square, Car, Clock, Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { AppointmentCard } from './AppointmentCard';
 import { useAppointments } from '@/hooks/useAppointments';
+import { useTechnicians } from '@/hooks/useTechnicians';
 
 interface ResourceTimelineProps {
   selectedDate: Date;
@@ -13,30 +15,42 @@ interface ResourceTimelineProps {
 }
 
 export const ResourceTimeline = ({ selectedDate, resourceFilter, searchQuery }: ResourceTimelineProps) => {
-  const { appointments, loading } = useAppointments(selectedDate, 'day');
+  const { appointments, loading: appointmentsLoading } = useAppointments(selectedDate, 'day');
+  const { technicians, loading: techniciansLoading } = useTechnicians();
 
-  // Mock resources data - in real app this would come from API
-  const resources = [
-    // Technicians
-    { id: '1', name: 'Mike Johnson', type: 'TECHNICIAN', color: '#FF6B6B', specialties: ['engine', 'diagnostics'] },
-    { id: '2', name: 'Sarah Wilson', type: 'TECHNICIAN', color: '#4ECDC4', specialties: ['brakes', 'suspension'] },
-    { id: '3', name: 'David Chen', type: 'TECHNICIAN', color: '#45B7D1', specialties: ['transmission'] },
-    { id: '4', name: 'Lisa Garcia', type: 'TECHNICIAN', color: '#96CEB4', specialties: ['electrical', 'ac'] },
-    { id: '5', name: 'Tom Anderson', type: 'TECHNICIAN', color: '#FFEAA7', specialties: ['tires', 'alignment'] },
-    { id: '6', name: 'Emma Thompson', type: 'TECHNICIAN', color: '#DDA0DD', specialties: ['general'] },
+  // Filter resources based on the filter
+  const filteredResources = React.useMemo(() => {
+    if (resourceFilter === 'technicians') {
+      return technicians.map(tech => ({
+        id: tech.id,
+        name: tech.display_name,
+        type: 'TECHNICIAN' as const,
+        color: tech.color,
+        specialties: tech.skills
+      }));
+    }
     
-    // Bays
-    { id: '7', name: 'Bay 1 - Quick Service', type: 'BAY', color: '#E74C3C', liftType: 'two_post' },
-    { id: '8', name: 'Bay 2 - Heavy Duty', type: 'BAY', color: '#3498DB', liftType: 'four_post' },
-    { id: '9', name: 'Bay 3 - Alignment', type: 'BAY', color: '#2ECC71', liftType: 'scissor' },
-    { id: '10', name: 'Bay 4 - General Service', type: 'BAY', color: '#F39C12', liftType: 'two_post' },
-  ];
+    if (resourceFilter === 'bays') {
+      // Mock bays for now - could be fetched from another table
+      return [
+        { id: '7', name: 'Bay 1 - Quick Service', type: 'BAY' as const, color: '#E74C3C', liftType: 'two_post' },
+        { id: '8', name: 'Bay 2 - Heavy Duty', type: 'BAY' as const, color: '#3498DB', liftType: 'four_post' },
+        { id: '9', name: 'Bay 3 - Alignment', type: 'BAY' as const, color: '#2ECC71', liftType: 'scissor' },
+        { id: '10', name: 'Bay 4 - General Service', type: 'BAY' as const, color: '#F39C12', liftType: 'two_post' },
+      ];
+    }
+    
+    // 'all' - return technicians by default
+    return technicians.map(tech => ({
+      id: tech.id,
+      name: tech.display_name,
+      type: 'TECHNICIAN' as const,
+      color: tech.color,
+      specialties: tech.skills
+    }));
+  }, [technicians, resourceFilter]);
 
-  const filteredResources = resources.filter(resource => {
-    if (resourceFilter === 'technicians') return resource.type === 'TECHNICIAN';
-    if (resourceFilter === 'bays') return resource.type === 'BAY';
-    return true;
-  });
+  const loading = appointmentsLoading || techniciansLoading;
 
   const getResourceIcon = (type: string) => {
     switch (type) {
@@ -66,7 +80,8 @@ export const ResourceTimeline = ({ selectedDate, resourceFilter, searchQuery }: 
 
   const getResourceAppointments = (resourceId: string) => {
     return appointments.filter(apt => 
-      apt.resources?.some((r: any) => r.id === resourceId)
+      apt.technician_id === resourceId || 
+      apt.assigned_to === resourceId
     );
   };
 
@@ -178,15 +193,27 @@ export const ResourceTimeline = ({ selectedDate, resourceFilter, searchQuery }: 
         })}
       </div>
 
-      {filteredResources.length === 0 && (
+      {filteredResources.length === 0 && !loading && (
         <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center text-muted-foreground">
+          <div className="text-center">
             <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No resources found</p>
-            <p className="text-sm">Try adjusting your filters</p>
+            <h3 className="text-lg font-medium text-foreground mb-2">No Active Technicians</h3>
+            <p className="text-muted-foreground mb-4">
+              {resourceFilter === 'technicians' 
+                ? 'No active technicians found. Add technicians to start scheduling.'
+                : 'No resources found for the selected filter.'
+              }
+            </p>
+            {resourceFilter === 'technicians' && (
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Technician
+              </Button>
+            )}
           </div>
         </div>
       )}
+
     </div>
   );
 };
