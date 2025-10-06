@@ -76,9 +76,41 @@ Start the development server:
 npm run dev
 ```
 
+### Phase 1.1 – Vehicle Media & Documentation
+
+Run the new media migrations and seeds:
+```bash
+npx supabase db push --file backend/sql/010-media.sql
+npx supabase db push --file backend/sql/seeds.sql
+```
+
+Deploy the media edge function locally:
+```bash
+npx supabase functions serve media-process --env-file supabase/.env.local
+```
+
 Build for production:
 ```bash
 npm run build
+```
+
+### Phase 1.2 – Work Order Photo Documentation
+
+Run the updated migrations and seeds (idempotent):
+```bash
+npx supabase db push --file backend/sql/010-media.sql
+npx supabase db push --file backend/sql/seeds.sql
+```
+
+Serve the notification edge function locally and ensure environment variables for SendGrid/Twilio are available when deploying:
+```bash
+npx supabase functions serve notify-customer --env-file supabase/.env.local
+```
+
+Run automated tests for the new media utilities and edge function guards:
+```bash
+npm run test
+deno test backend/tests/functions/notify_customer_test.ts
 ```
 
 ### Demo Accounts
