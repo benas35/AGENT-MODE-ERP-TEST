@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MultiStepWizard } from '@/components/shared/MultiStepWizard';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { Loader2 } from 'lucide-react';
+import { handleSupabaseError, validateFormData } from '@/lib/errorHandling';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 
 interface CreateWorkOrderModalProps {
   open: boolean;
@@ -14,18 +17,19 @@ interface CreateWorkOrderModalProps {
   onWorkOrderCreated?: () => void;
 }
 
-interface WorkOrderFormData {
-  title: string;
-  description: string;
-  customerId: string;
-  vehicleId: string;
-  priority: string;
-  estimatedHours: number;
-  services: Array<{
-    name: string;
-    description: string;
-    hours: number;
-  }>;
+interface Customer {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone?: string;
+}
+
+interface Vehicle {
+  id: string;
+  make: string;
+  model: string;
+  year?: number;
+  license_plate?: string;
 }
 
 export const CreateWorkOrderModal: React.FC<CreateWorkOrderModalProps> = ({
@@ -34,25 +38,176 @@ export const CreateWorkOrderModal: React.FC<CreateWorkOrderModalProps> = ({
   onWorkOrderCreated,
 }) => {
   const { toast } = useToast();
-  const [formData, setFormData] = useState<WorkOrderFormData>({
+  const [loading, setLoading] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [stages, setStages] = useState<any[]>([]);
+  
+  const [formData, setFormData] = useState({
     title: '',
     description: '',
     customerId: '',
     vehicleId: '',
+    stageId: '',
     priority: 'normal',
-    estimatedHours: 0,
-    services: [],
+    estimatedHours: 2,
   });
 
-  const steps = [
-    {
-      id: 'basic',
-      title: 'Basic Information',
-      description: 'Enter work order details',
-      component: (
+  // Fetch data on modal open
+  useEffect(() => {
+    if (open) {
+      fetchCustomers();
+      fetchStages();
+    }
+  }, [open]);
+
+  // Fetch vehicles when customer changes
+  useEffect(() => {
+    if (formData.customerId) {
+      fetchVehicles(formData.customerId);
+    } else {
+      setVehicles([]);
+    }
+  }, [formData.customerId]);
+
+  const fetchCustomers = async () => {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name, phone')
+      .order('first_name', { ascending: true })
+      .limit(50);
+      
+    if (!error && data) {
+      setCustomers(data);
+    }
+  };
+
+  const fetchVehicles = async (customerId: string) => {
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('id, make, model, year, license_plate')
+      .eq('customer_id', customerId)
+      .order('year', { ascending: false });
+      
+    if (!error && data) {
+      setVehicles(data);
+    }
+  };
+
+  const fetchStages = async () => {
+    const { data, error } = await supabase
+      .from('workflow_stages')
+      .select('*')
+      .order('sort_order', { ascending: true });
+      
+    if (!error && data) {
+      setStages(data);
+      // Set default stage
+      if (data.length > 0 && !formData.stageId) {
+        setFormData(prev => ({ ...prev, stageId: data[0].id }));
+      }
+    }
+  };
+
+  const handleSubmit = async () => {
+    // Enhanced validation
+    const validationErrors = validateFormData(
+      { title: formData.title, customer: formData.customerId },
+      ['title', 'customer']
+    );
+
+    if (Object.keys(validationErrors).length > 0) {
+      toast({
+        title: "Validation Error",
+        description: Object.values(validationErrors)[0],
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Get user org_id and user_id
+      const { data: orgId } = await supabase.rpc('get_user_org_id');
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!orgId || !user) {
+        throw new Error('User authentication required');
+      }
+
+      // Generate work order number
+      const { data: woNumber } = await supabase.rpc('generate_next_number', {
+        entity_type_param: 'work_order',
+        org_id_param: orgId,
+        location_id_param: null
+      });
+
+      if (!woNumber) {
+        throw new Error('Failed to generate work order number');
+      }
+
+      // Create work order
+      const { error: woError } = await supabase
+        .from('work_orders')
+        .insert({
+          org_id: orgId,
+          created_by: user.id,
+          work_order_number: woNumber,
+          title: formData.title,
+          description: formData.description,
+          customer_id: formData.customerId,
+          vehicle_id: formData.vehicleId || null,
+          workflow_stage_id: formData.stageId,
+          priority: formData.priority,
+          estimated_hours: formData.estimatedHours,
+          status: 'DRAFT',
+          stage_entered_at: new Date().toISOString()
+        });
+
+      if (woError) throw woError;
+
+      toast({
+        title: "Success",
+        description: `Work order ${woNumber} created successfully`
+      });
+
+      onWorkOrderCreated?.();
+      onOpenChange(false);
+      
+      // Reset form
+      setFormData({
+        title: '',
+        description: '',
+        customerId: '',
+        vehicleId: '',
+        stageId: stages[0]?.id || '',
+        priority: 'normal',
+        estimatedHours: 2,
+      });
+    } catch (error: any) {
+      console.error('Error creating work order:', error);
+      const errorInfo = handleSupabaseError(error, 'creating work order');
+      toast({
+        title: errorInfo.title,
+        description: errorInfo.description,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create New Work Order</DialogTitle>
+        </DialogHeader>
+        
         <div className="space-y-4">
+          {/* Title */}
           <div>
-            <Label htmlFor="title">Work Order Title</Label>
+            <Label htmlFor="title">Title *</Label>
             <Input
               id="title"
               value={formData.title}
@@ -61,6 +216,7 @@ export const CreateWorkOrderModal: React.FC<CreateWorkOrderModalProps> = ({
             />
           </div>
           
+          {/* Description */}
           <div>
             <Label htmlFor="description">Description</Label>
             <Textarea
@@ -72,9 +228,48 @@ export const CreateWorkOrderModal: React.FC<CreateWorkOrderModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Customer */}
+          <div>
+            <Label>Customer *</Label>
+            <Select value={formData.customerId} onValueChange={(value) => setFormData(prev => ({ ...prev, customerId: value, vehicleId: '' }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select customer..." />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map(customer => (
+                  <SelectItem key={customer.id} value={customer.id}>
+                    {customer.first_name} {customer.last_name}
+                    {customer.phone && ` • ${customer.phone}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Vehicle */}
+          {formData.customerId && (
             <div>
-              <Label htmlFor="priority">Priority</Label>
+              <Label>Vehicle</Label>
+              <Select value={formData.vehicleId} onValueChange={(value) => setFormData(prev => ({ ...prev, vehicleId: value }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select vehicle..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {vehicles.map(vehicle => (
+                    <SelectItem key={vehicle.id} value={vehicle.id}>
+                      {vehicle.year || ''} {vehicle.make} {vehicle.model}
+                      {vehicle.license_plate && ` • ${vehicle.license_plate}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* Priority */}
+            <div>
+              <Label>Priority</Label>
               <Select value={formData.priority} onValueChange={(value) => setFormData(prev => ({ ...prev, priority: value }))}>
                 <SelectTrigger>
                   <SelectValue />
@@ -88,6 +283,7 @@ export const CreateWorkOrderModal: React.FC<CreateWorkOrderModalProps> = ({
               </Select>
             </div>
             
+            {/* Estimated Hours */}
             <div>
               <Label htmlFor="estimatedHours">Estimated Hours</Label>
               <Input
@@ -100,135 +296,40 @@ export const CreateWorkOrderModal: React.FC<CreateWorkOrderModalProps> = ({
               />
             </div>
           </div>
-        </div>
-      )
-    },
-    {
-      id: 'customer',
-      title: 'Customer & Vehicle',
-      description: 'Select customer and vehicle',
-      component: (
-        <div className="space-y-4">
+
+          {/* Stage */}
           <div>
-            <Label htmlFor="customer">Customer</Label>
-            <Select value={formData.customerId} onValueChange={(value) => setFormData(prev => ({ ...prev, customerId: value }))}>
+            <Label>Initial Stage</Label>
+            <Select value={formData.stageId} onValueChange={(value) => setFormData(prev => ({ ...prev, stageId: value }))}>
               <SelectTrigger>
-                <SelectValue placeholder="Select customer..." />
+                <SelectValue placeholder="Select stage..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="customer1">John Doe</SelectItem>
-                <SelectItem value="customer2">Jane Smith</SelectItem>
-                <SelectItem value="customer3">Mike Johnson</SelectItem>
+                {stages.map(stage => (
+                  <SelectItem key={stage.id} value={stage.id}>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: stage.color }}
+                      />
+                      {stage.name}
+                    </div>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-          
-          <div>
-            <Label htmlFor="vehicle">Vehicle</Label>
-            <Select value={formData.vehicleId} onValueChange={(value) => setFormData(prev => ({ ...prev, vehicleId: value }))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select vehicle..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="vehicle1">2020 Toyota Camry - ABC123</SelectItem>
-                <SelectItem value="vehicle2">2019 Honda Civic - XYZ789</SelectItem>
-                <SelectItem value="vehicle3">2021 Ford F-150 - DEF456</SelectItem>
-              </SelectContent>
-            </Select>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+              Cancel
+            </Button>
+            <LoadingButton onClick={handleSubmit} loading={loading} loadingText="Creating...">
+              Create Work Order
+            </LoadingButton>
           </div>
         </div>
-      )
-    },
-    {
-      id: 'services',
-      title: 'Services',
-      description: 'Add services to perform',
-      component: (
-        <div className="space-y-4">
-          <div className="text-sm text-muted-foreground">
-            Services will be added to this work order. You can modify them later.
-          </div>
-          
-          <div className="border rounded-lg p-4 space-y-3">
-            {formData.services.length === 0 ? (
-              <div className="text-center text-muted-foreground py-4">
-                No services added yet
-              </div>
-            ) : (
-              formData.services.map((service, index) => (
-                <div key={index} className="flex items-center justify-between p-2 bg-muted/50 rounded">
-                  <div>
-                    <div className="font-medium">{service.name}</div>
-                    <div className="text-sm text-muted-foreground">{service.description}</div>
-                  </div>
-                  <div className="text-sm font-medium">{service.hours}h</div>
-                </div>
-              ))
-            )}
-          </div>
-          
-          <Button 
-            variant="outline" 
-            onClick={() => {
-              setFormData(prev => ({
-                ...prev,
-                services: [
-                  ...prev.services,
-                  { name: 'Oil Change', description: 'Standard oil and filter change', hours: 1 }
-                ]
-              }));
-            }}
-          >
-            Add Sample Service
-          </Button>
-        </div>
-      )
-    }
-  ];
-
-  const handleSubmit = async () => {
-    try {
-      // Here you would typically call your API to create the work order
-      console.log('Creating work order:', formData);
-      
-      toast({
-        title: "Work Order Created",
-        description: `Work order "${formData.title}" has been created successfully.`,
-      });
-      
-      onWorkOrderCreated?.();
-      onOpenChange(false);
-      
-      // Reset form
-      setFormData({
-        title: '',
-        description: '',
-        customerId: '',
-        vehicleId: '',
-        priority: 'normal',
-        estimatedHours: 0,
-        services: [],
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to create work order. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Create New Work Order</DialogTitle>
-        </DialogHeader>
-        
-        <MultiStepWizard
-          steps={steps}
-          onComplete={handleSubmit}
-        />
       </DialogContent>
     </Dialog>
   );
