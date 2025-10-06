@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 import { useParts } from "@/hooks/useParts"
 import { useSuppliers } from "@/hooks/useSuppliers"
+import { handleSupabaseError, validateFormData } from "@/lib/errorHandling"
+import { LoadingButton } from "@/components/shared/LoadingButton"
 
 interface AddPartModalProps {
   open: boolean
@@ -37,6 +39,22 @@ export function AddPartModal({ open, onOpenChange }: AddPartModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Enhanced validation
+    const validationErrors = validateFormData(
+      { sku: formData.sku, part_no: formData.part_no, name: formData.name },
+      ['sku', 'part_no', 'name']
+    );
+
+    if (Object.keys(validationErrors).length > 0) {
+      toast({
+        title: "Validation Error",
+        description: Object.values(validationErrors)[0],
+        variant: "destructive"
+      });
+      return;
+    }
+
     setLoading(true)
 
     try {
@@ -74,9 +92,10 @@ export function AddPartModal({ open, onOpenChange }: AddPartModalProps) {
         max_stock: "0",
       })
     } catch (error) {
+      const errorInfo = handleSupabaseError(error as any, 'creating part');
       toast({
-        title: "Error",
-        description: "Failed to create part",
+        title: errorInfo.title,
+        description: errorInfo.description,
         variant: "destructive",
       })
     } finally {
@@ -232,9 +251,9 @@ export function AddPartModal({ open, onOpenChange }: AddPartModalProps) {
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Creating..." : "Create Part"}
-            </Button>
+            <LoadingButton type="submit" loading={loading} loadingText="Creating...">
+              Create Part
+            </LoadingButton>
           </div>
         </form>
       </DialogContent>
