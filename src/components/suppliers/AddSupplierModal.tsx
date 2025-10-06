@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
 import { useSuppliers } from "@/hooks/useSuppliers"
+import { handleSupabaseError, validateFormData, validateEmail } from "@/lib/errorHandling"
+import { LoadingButton } from "@/components/shared/LoadingButton"
 
 interface AddSupplierModalProps {
   open: boolean
@@ -39,6 +41,31 @@ export function AddSupplierModal({ open, onOpenChange }: AddSupplierModalProps) 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Enhanced validation
+    const validationErrors = validateFormData(
+      { name: formData.name },
+      ['name']
+    );
+
+    if (Object.keys(validationErrors).length > 0) {
+      toast({
+        title: "Validation Error",
+        description: Object.values(validationErrors)[0],
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (formData.email && !validateEmail(formData.email)) {
+      toast({
+        title: "Invalid Email",
+        description: "Please enter a valid email address",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setLoading(true)
 
     try {
@@ -73,9 +100,10 @@ export function AddSupplierModal({ open, onOpenChange }: AddSupplierModalProps) 
         }
       })
     } catch (error) {
+      const errorInfo = handleSupabaseError(error as any, 'creating supplier');
       toast({
-        title: "Error",
-        description: "Failed to create supplier",
+        title: errorInfo.title,
+        description: errorInfo.description,
         variant: "destructive",
       })
     } finally {
@@ -259,9 +287,9 @@ export function AddSupplierModal({ open, onOpenChange }: AddSupplierModalProps) 
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Creating..." : "Create Supplier"}
-            </Button>
+            <LoadingButton type="submit" loading={loading} loadingText="Creating...">
+              Create Supplier
+            </LoadingButton>
           </div>
         </form>
       </DialogContent>
