@@ -3900,6 +3900,64 @@ export type Database = {
           },
         ]
       }
+      work_order_media: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          kind: string
+          org_id: string
+          storage_path: string
+          uploaded_at: string
+          uploaded_by: string | null
+          work_order_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          kind: string
+          org_id: string
+          storage_path: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+          work_order_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          kind?: string
+          org_id?: string
+          storage_path?: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_media_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_media_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_media_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_orders: {
         Row: {
           actual_hours: number | null
