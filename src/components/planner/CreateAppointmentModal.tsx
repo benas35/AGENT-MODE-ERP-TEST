@@ -13,6 +13,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useResources } from '@/hooks/useResources';
 import { useWorkZones } from '@/hooks/useWorkZones';
+import { handleSupabaseError, validateFormData } from '@/lib/errorHandling';
+import { LoadingButton } from '@/components/shared/LoadingButton';
 
 interface CreateAppointmentModalProps {
   open: boolean;
@@ -176,10 +178,28 @@ export const CreateAppointmentModal: React.FC<CreateAppointmentModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (!formData.title || !selectedCustomerId) {
+    // Enhanced validation
+    const validationErrors = validateFormData(
+      { 
+        title: formData.title?.trim(), 
+        customer: selectedCustomerId 
+      },
+      ['title', 'customer']
+    );
+
+    if (Object.keys(validationErrors).length > 0) {
       toast({
         title: "Validation Error",
-        description: "Please fill in all required fields",
+        description: Object.values(validationErrors)[0],
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (formData.startTime >= formData.endTime) {
+      toast({
+        title: "Invalid Time Range",
+        description: "End time must be after start time",
         variant: "destructive"
       });
       return;
@@ -187,45 +207,78 @@ export const CreateAppointmentModal: React.FC<CreateAppointmentModalProps> = ({
 
     setLoading(true);
     try {
-      // Get user org_id and user_id first
-      const { data: orgId } = await supabase.rpc('get_user_org_id');
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get user org_id and user_id first (kept for downstream inserts)
+      const { data: orgId, error: orgError } = await supabase.rpc('get_user_org_id');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
       
-      if (!orgId || !user) {
-        throw new Error('User authentication required');
-      }
+      if (orgError) throw new Error(`Failed to get organization: ${orgError.message}`);
+      if (userError) throw new Error(`Failed to get user: ${userError.message}`);
+      if (!orgId || !user) throw new Error('User authentication required');
       
       // Create appointment
-      const { data: appointment, error: appointmentError } = await supabase
-        .from('appointments')
-        .insert({
-          org_id: orgId,
-          created_by: user.id,
-          title: formData.title,
-          start_time: formData.startTime.toISOString(),
-          end_time: formData.endTime.toISOString(),
+      // Insert appointment via secure RPC and create linked WO if requested
+      const { data: newAppointmentId, error: scheduleError } = await supabase.rpc('schedule_appointment', {
+        payload: {
+          location_id: null,
           customer_id: selectedCustomerId,
           vehicle_id: selectedVehicleId || null,
-          work_zone_id: selectedWorkZoneId || null,
+          title: formData.title,
+          description: formData.notes || '',
+          start_time: formData.startTime.toISOString(),
+          end_time: formData.endTime.toISOString(),
+          status: 'SCHEDULED',
           priority: formData.priority,
-          notes: formData.notes,
-          status: 'SCHEDULED'
-        } as any)
-        .select()
+          source: 'online',
+          estimated_minutes: Math.max(15, Math.round((formData.endTime.getTime() - formData.startTime.getTime()) / 60000)),
+          resource_ids: selectedResourceId || undefined
+        }
+      });
+
+      if (scheduleError) throw scheduleError;
+
+      const { data: appointment, error: fetchError } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('id', newAppointmentId)
         .single();
 
-      if (appointmentError) throw appointmentError;
+      if (fetchError) throw fetchError;
 
-      // Assign resources if selected
-      if (selectedResourceId && appointment && orgId) {
-        await supabase
-          .from('appointment_resources')
+      // If user requested a work order, create it now and link it
+      if (formData.createWorkOrder && appointment && orgId && user) {
+        const { data: woNumber } = await supabase.rpc('generate_next_number', {
+          entity_type_param: 'work_order',
+          org_id_param: orgId,
+          location_id_param: appointment.location_id
+        });
+
+        const { data: newWo, error: woError } = await supabase
+          .from('work_orders')
           .insert({
-            appointment_id: appointment.id,
-            resource_id: selectedResourceId,
-            org_id: orgId
-          });
+            work_order_number: woNumber,
+            org_id: orgId,
+            created_by: user.id,
+            customer_id: selectedCustomerId,
+            vehicle_id: selectedVehicleId || null,
+            title: formData.title,
+            description: formData.notes || '',
+            status: 'DRAFT'
+          })
+          .select()
+          .single();
+
+        if (!woError && newWo) {
+          // Link appointment to work order
+          await supabase
+            .from('appointments')
+            .update({ work_order_id: newWo.id })
+            .eq('id', appointment.id);
+        }
       }
+
+      
+
+      // Resource assignment handled in schedule_appointment RPC when resource_ids provided
 
       // Create appointment operations from template
       if (selectedTemplateId && appointment && orgId && user) {
@@ -268,19 +321,100 @@ export const CreateAppointmentModal: React.FC<CreateAppointmentModalProps> = ({
           } as any);
       }
 
+      // Create work order if requested
+      if (formData.createWorkOrder && appointment && orgId && user) {
+        const { data: woNumber } = await supabase.rpc('generate_next_number', {
+          entity_type_param: 'work_order',
+          org_id_param: orgId,
+          location_id_param: appointment.location_id
+        });
+
+        const { data: newWO, error: woError } = await supabase
+          .from('work_orders')
+          .insert({
+            org_id: orgId,
+            location_id: appointment.location_id,
+            customer_id: selectedCustomerId,
+            vehicle_id: selectedVehicleId || null,
+            work_order_number: woNumber,
+            title: formData.title,
+            description: formData.notes,
+            status: 'DRAFT',
+            service_advisor: user.id,
+            technician_id: selectedResourceId || null,
+            created_by: user.id
+          } as any)
+          .select()
+          .single();
+
+        if (!woError && newWO) {
+          // Link appointment to work order
+          await supabase
+            .from('appointments')
+            .update({ work_order_id: newWO.id })
+            .eq('id', appointment.id);
+        }
+      }
+
+
+      // Create work order if requested
+      if (formData.createWorkOrder && appointment && orgId && user) {
+        const { data: woNumber } = await supabase.rpc('generate_next_number', {
+          entity_type_param: 'work_order',
+          org_id_param: orgId,
+          location_id_param: appointment.location_id
+        });
+
+        const { error: woErr } = await supabase
+          .from('work_orders')
+          .insert({
+            work_order_number: woNumber,
+            org_id: orgId,
+            created_by: user.id,
+            customer_id: selectedCustomerId,
+            vehicle_id: selectedVehicleId || null,
+            title: formData.title,
+            description: formData.notes || '',
+            status: 'DRAFT'
+          } as any);
+
+        if (woErr) {
+          console.error('Error creating work order:', woErr);
+        }
+      }
+
       toast({
         title: "Success",
-        description: "Appointment created successfully"
+        description: `Appointment "${formData.title}" created successfully`
+      });
+
+      // Reset form
+      setSelectedCustomerId('');
+      setSelectedVehicleId('');
+      setSelectedTemplateId('');
+      setSelectedResourceId(initialResourceId || '');
+      setSelectedWorkZoneId(initialWorkZoneId || '');
+      setFormData({
+        title: '',
+        startTime: initialStartTime || new Date(),
+        endTime: initialEndTime || addMinutes(initialStartTime || new Date(), 60),
+        priority: 'normal',
+        notes: '',
+        requireEsign: false,
+        blockUntilPartsReady: false,
+        createEstimate: false,
+        createWorkOrder: false
       });
 
       onSuccess?.();
       onOpenChange(false);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating appointment:', error);
+      const errorInfo = handleSupabaseError(error, 'creating appointment');
       toast({
-        title: "Error",
-        description: "Failed to create appointment",
+        title: errorInfo.title,
+        description: errorInfo.description,
         variant: "destructive"
       });
     } finally {
@@ -560,9 +694,9 @@ export const CreateAppointmentModal: React.FC<CreateAppointmentModalProps> = ({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? 'Creating...' : 'Create Appointment'}
-          </Button>
+          <LoadingButton onClick={handleSubmit} loading={loading} loadingText="Creating...">
+            Create Appointment
+          </LoadingButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>
