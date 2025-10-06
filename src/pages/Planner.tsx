@@ -6,14 +6,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ResourcePlannerView } from '@/components/planner/ResourcePlannerView';
 import { PlannerHeader } from '@/components/planner/PlannerHeader';
 import { ResourceTimeline } from '@/components/planner/ResourceTimeline';
-import { AppointmentDialog } from '@/components/planner/AppointmentDialog';
+import { CreateAppointmentModal } from '@/components/planner/CreateAppointmentModal';
 import { MiniCalendar } from '@/components/planner/MiniCalendar';
 import { CapacityIndicator } from '@/components/planner/CapacityIndicator';
 import { AdvancedPlannerBoard } from '@/components/planner/AdvancedPlannerBoard';
 import { ColumnarPlannerView } from '@/components/planner/ColumnarPlannerView';
+import { useTechnicians } from '@/hooks/useTechnicians';
 
 const Planner = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -24,6 +24,8 @@ const Planner = () => {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
+
+  const { technicians, loading: techniciansLoading } = useTechnicians();
 
   const handleViewChange = (view: 'day' | 'week' | 'month' | 'timeline') => {
     setCurrentView(view);
@@ -114,7 +116,42 @@ const Planner = () => {
         {/* Capacity Overview */}
         <div className="p-4 flex-1">
           <h3 className="text-sm font-medium text-foreground mb-3">Today's Capacity</h3>
-          <CapacityIndicator />
+          {techniciansLoading ? (
+            <div className="animate-pulse">
+              <div className="h-4 bg-muted rounded mb-2"></div>
+              <div className="h-4 bg-muted rounded mb-2"></div>
+              <div className="h-4 bg-muted rounded"></div>
+            </div>
+          ) : technicians.length > 0 ? (
+            <div className="space-y-3">
+              {technicians.map((tech) => (
+                <div key={tech.id} className="flex items-center gap-2">
+                  <div 
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: tech.color }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate">{tech.display_name}</div>
+                    <div className="w-full bg-muted rounded-full h-1.5">
+                      <div 
+                        className="bg-primary h-1.5 rounded-full" 
+                        style={{ width: '45%' }}
+                      />
+                    </div>
+                  </div>
+                  <span className="text-xs text-muted-foreground">45%</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center p-4 text-muted-foreground">
+              <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No active technicians</p>
+              <Button variant="outline" size="sm" className="mt-2">
+                Add Technician
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -170,10 +207,11 @@ const Planner = () => {
       </div>
 
       {/* Create Appointment Dialog */}
-      <AppointmentDialog
+      <CreateAppointmentModal
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
         selectedDate={selectedDate}
+        onSuccess={() => setShowCreateDialog(false)}
       />
     </div>
   );
