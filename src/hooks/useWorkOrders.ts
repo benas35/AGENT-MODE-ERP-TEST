@@ -32,9 +32,11 @@ interface WorkOrder {
     license_plate?: string;
   };
   technician?: {
-    first_name?: string;
-    last_name?: string;
     display_name?: string;
+  };
+  workflow_stage?: {
+    name: string;
+    color: string;
   };
 }
 
@@ -55,12 +57,14 @@ export const useWorkOrders = (options: UseWorkOrdersOptions) => {
       setLoading(true);
       setError(null);
 
+      // Fetch work orders with basic joins
       let query = supabase
         .from('work_orders')
         .select(`
           *,
           customer:customers(first_name, last_name, phone),
-          vehicle:vehicles(year, make, model, license_plate)
+          vehicle:vehicles(year, make, model, license_plate),
+          workflow_stage:workflow_stages(name, color)
         `)
         .gte('created_at', options.dateFrom.toISOString())
         .lte('created_at', options.dateTo.toISOString())
@@ -79,13 +83,35 @@ export const useWorkOrders = (options: UseWorkOrdersOptions) => {
       if (fetchError) {
         console.error('Error fetching work orders:', fetchError);
         setError(fetchError.message);
+        setWorkOrders([]);
         return;
       }
 
-      setWorkOrders((data || []) as WorkOrder[]);
+      // Fetch technician names separately if needed
+      const workOrdersWithTech = await Promise.all(
+        (data || []).map(async (wo: any) => {
+          if (wo.technician_id) {
+            const { data: resource } = await supabase
+              .from('resources')
+              .select('name')
+              .eq('id', wo.technician_id)
+              .eq('type', 'TECHNICIAN')
+              .maybeSingle();
+            
+            return {
+              ...wo,
+              technician: resource ? { display_name: resource.name } : null
+            };
+          }
+          return { ...wo, technician: null };
+        })
+      );
+
+      setWorkOrders(workOrdersWithTech as WorkOrder[]);
     } catch (err) {
       console.error('Error in fetchWorkOrders:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
+      setWorkOrders([]);
     } finally {
       setLoading(false);
     }
