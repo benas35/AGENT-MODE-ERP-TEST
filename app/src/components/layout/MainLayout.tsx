@@ -1,11 +1,13 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
-import { Bell, Search, User, LogOut } from "lucide-react";
+import { Bell, Search, User, LogOut, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/useAuth";
+import { useChatThreads } from "@/hooks/useInternalChat";
+import { Link } from "react-router-dom";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -13,6 +15,7 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   const { user, profile, signOut } = useAuth();
+  const { unreadCount } = useChatThreads();
 
   const getUserInitials = () => {
     if (profile?.first_name && profile?.last_name) {
@@ -51,6 +54,17 @@ export function MainLayout({ children }: MainLayoutProps) {
             </div>
             
             <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" asChild>
+                <Link to="/work-orders" className="relative">
+                  <MessageCircle className="h-4 w-4" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-semibold text-primary-foreground">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                  <span className="sr-only">Open chat inbox</span>
+                </Link>
+              </Button>
               <Button variant="ghost" size="icon">
                 <Bell className="h-4 w-4" />
               </Button>

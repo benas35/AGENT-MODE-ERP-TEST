@@ -20,6 +20,7 @@ import {
   Package
 } from "lucide-react";
 import { mockWorkOrders, getCustomerById, getVehicleById, getTechnicianById, WorkOrder } from "@/data/mockData";
+import { ServiceDeskInbox } from "@/features/chat/ServiceDeskInbox";
 
 const statusConfig = {
   'scheduled': { 
@@ -213,6 +214,9 @@ export default function WorkOrders() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Internal messaging inbox */}
+      <ServiceDeskInbox />
 
       {/* Status Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>

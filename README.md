@@ -113,6 +113,26 @@ npm run test
 deno test backend/tests/functions/notify_customer_test.ts
 ```
 
+### Phase 1.3 – Internal Communication System
+
+Apply the messaging migrations and refresh demo seeds:
+```bash
+npx supabase db push --file backend/sql/020-messages.sql
+npx supabase db push --file backend/sql/seeds.sql
+```
+
+Serve the internal messaging edge function for local development:
+```bash
+npx supabase functions serve internal-messages --env-file supabase/.env.local
+```
+
+Execute the new unit and policy tests:
+```bash
+npm run test
+deno test backend/tests/functions/internal_messages_test.ts
+pg_prove backend/tests/rls/internal_messages.sql
+```
+
 ### Demo Accounts
 
 After running the application, you can create accounts or use these demo credentials:

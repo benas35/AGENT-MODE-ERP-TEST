@@ -23,6 +23,7 @@ import { WorkOrderStatusBadge } from './WorkOrderStatusBadge';
 import { VehicleMediaPreview } from '@/features/vehicle-media/VehicleMediaPreview';
 import { VehiclePhotoGallery } from '@/components/vehicles/VehiclePhotoGallery';
 import { WorkOrderPhotoSection } from './WorkOrderPhotoSection';
+import { TechnicianChatSheet } from '@/features/chat/TechnicianChatSheet';
 
 interface WorkOrder {
   id: string;
@@ -117,13 +118,19 @@ export const ViewWorkOrderModal: React.FC<ViewWorkOrderModalProps> = ({
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <h3 className="font-semibold text-lg">
-                    {workOrder.title || `Work Order ${workOrder.work_order_number}`}
-                  </h3>
-                  {workOrder.description && (
-                    <p className="text-muted-foreground mt-2">{workOrder.description}</p>
-                  )}
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="font-semibold text-lg">
+                      {workOrder.title || `Work Order ${workOrder.work_order_number}`}
+                    </h3>
+                    {workOrder.description && (
+                      <p className="text-muted-foreground mt-2">{workOrder.description}</p>
+                    )}
+                  </div>
+                  <TechnicianChatSheet
+                    workOrderId={workOrder.id}
+                    triggerLabel="Team chat"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

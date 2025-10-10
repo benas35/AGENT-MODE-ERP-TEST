@@ -165,4 +165,150 @@ values
   )
   on conflict (id) do nothing;
 
+-- Seed internal profiles for messaging
+insert into profiles (id, org_id, role, first_name, last_name, email, active)
+values
+  (
+    '550e8400-e29b-41d4-a716-446655440100',
+    '550e8400-e29b-41d4-a716-446655440000',
+    'OWNER',
+    'Austeja',
+    'Petrauskiene',
+    'austeja@profixauto.com',
+    true
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440101',
+    '550e8400-e29b-41d4-a716-446655440000',
+    'SERVICE_ADVISOR',
+    'Matas',
+    'Stonys',
+    'matas@profixauto.com',
+    true
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440102',
+    '550e8400-e29b-41d4-a716-446655440000',
+    'TECHNICIAN',
+    'Greta',
+    'Kavaliauskaite',
+    'greta@profixauto.com',
+    true
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440103',
+    '550e8400-e29b-41d4-a716-446655440000',
+    'MANAGER',
+    'Lukas',
+    'Sirvydis',
+    'lukas@profixauto.com',
+    true
+  )
+on conflict (id) do update set
+  org_id = excluded.org_id,
+  role = excluded.role,
+  first_name = excluded.first_name,
+  last_name = excluded.last_name,
+  email = excluded.email,
+  active = excluded.active;
+
+-- Seed messaging threads and messages
+insert into message_threads (id, org_id, work_order_id, participants, last_message_at, created_at)
+values
+  (
+    '550e8400-e29b-41d4-a716-446655440c00',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440a00',
+    array[
+      '550e8400-e29b-41d4-a716-446655440100',
+      '550e8400-e29b-41d4-a716-446655440101',
+      '550e8400-e29b-41d4-a716-446655440102'
+    ]::uuid[],
+    now() - interval '10 minutes',
+    now() - interval '1 day'
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440c01',
+    '550e8400-e29b-41d4-a716-446655440000',
+    null,
+    array[
+      '550e8400-e29b-41d4-a716-446655440100',
+      '550e8400-e29b-41d4-a716-446655440103'
+    ]::uuid[],
+    now() - interval '2 hours',
+    now() - interval '2 days'
+  )
+on conflict (id) do update set
+  org_id = excluded.org_id,
+  work_order_id = excluded.work_order_id,
+  participants = excluded.participants,
+  last_message_at = excluded.last_message_at;
+
+insert into internal_messages (
+  id,
+  org_id,
+  thread_id,
+  sender_id,
+  recipient_id,
+  work_order_id,
+  body,
+  priority,
+  attachments,
+  created_at
+)
+values
+  (
+    '550e8400-e29b-41d4-a716-446655440d00',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440c00',
+    '550e8400-e29b-41d4-a716-446655440101',
+    '550e8400-e29b-41d4-a716-446655440102',
+    '550e8400-e29b-41d4-a716-446655440a00',
+    'Can you confirm the brake caliper torque specs before we close?',
+    'normal',
+    '[{"storage_path": "demo/orgs/profix-auto/work-orders/550e8400-e29b-41d4-a716-446655440a00/caliper.webp", "name": "Caliper leak"}]'::jsonb,
+    now() - interval '45 minutes'
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440d01',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440c00',
+    '550e8400-e29b-41d4-a716-446655440102',
+    '550e8400-e29b-41d4-a716-446655440101',
+    '550e8400-e29b-41d4-a716-446655440a00',
+    'Torque confirmed and photo uploaded to the DVI. Ready for advisor review.',
+    'normal',
+    '[]'::jsonb,
+    now() - interval '40 minutes'
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440d02',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440c00',
+    '550e8400-e29b-41d4-a716-446655440101',
+    null,
+    '550e8400-e29b-41d4-a716-446655440a00',
+    'Great work. Marking as urgent to ensure QA signs off before delivery.',
+    'urgent',
+    '[]'::jsonb,
+    now() - interval '35 minutes'
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440d10',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440c01',
+    '550e8400-e29b-41d4-a716-446655440103',
+    '550e8400-e29b-41d4-a716-446655440100',
+    null,
+    'Reminder that the compliance audit starts at 16:00. Need your approval on the updated checklist.',
+    'normal',
+    '[]'::jsonb,
+    now() - interval '90 minutes'
+  )
+on conflict (id) do update set
+  body = excluded.body,
+  priority = excluded.priority,
+  attachments = excluded.attachments,
+  created_at = excluded.created_at;
+
 set session_replication_role = origin;
