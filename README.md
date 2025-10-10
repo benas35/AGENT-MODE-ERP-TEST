@@ -76,10 +76,91 @@ Start the development server:
 npm run dev
 ```
 
+### Phase 1.1 – Vehicle Media & Documentation
+
+Run the new media migrations and seeds:
+```bash
+npx supabase db push --file backend/sql/010-media.sql
+npx supabase db push --file backend/sql/seeds.sql
+```
+
+Deploy the media edge function locally:
+```bash
+npx supabase functions serve media-process --env-file supabase/.env.local
+```
+
 Build for production:
 ```bash
 npm run build
 ```
+
+### Phase 1.2 – Work Order Photo Documentation
+
+Run the updated migrations and seeds (idempotent):
+```bash
+npx supabase db push --file backend/sql/010-media.sql
+npx supabase db push --file backend/sql/seeds.sql
+```
+
+Serve the notification edge function locally and ensure environment variables for SendGrid/Twilio are available when deploying:
+```bash
+npx supabase functions serve notify-customer --env-file supabase/.env.local
+```
+
+Run automated tests for the new media utilities and edge function guards:
+```bash
+npm run test
+deno test backend/tests/functions/notify_customer_test.ts
+```
+
+### Phase 1.3 – Internal Communication System
+
+Apply the messaging migrations and refresh demo seeds:
+```bash
+npx supabase db push --file backend/sql/020-messages.sql
+npx supabase db push --file backend/sql/seeds.sql
+```
+
+Serve the internal messaging edge function for local development:
+```bash
+npx supabase functions serve internal-messages --env-file supabase/.env.local
+```
+
+Execute the new unit and policy tests:
+```bash
+npm run test
+deno test backend/tests/functions/internal_messages_test.ts
+pg_prove backend/tests/rls/internal_messages.sql
+```
+
+### Phase 1.4 – Customer Communication Hub
+
+Apply the messaging/customer portal migrations and reseed demo data:
+```bash
+npx supabase db push --file backend/sql/020-messages.sql
+npx supabase db push --file backend/sql/seeds.sql
+```
+
+Serve the new customer portal edge functions when developing locally:
+```bash
+npx supabase functions serve customer-portal --env-file supabase/.env.local
+npx supabase functions serve customer-notify --env-file supabase/.env.local
+```
+
+Update `supabase/.env.local` with the SendGrid/Twilio credentials used by the notification functions. The portal session function expects `SUPABASE_JWT_SECRET`, `PORTAL_MAGIC_LINK_BASE_URL`, and the service role key.
+
+Run the new automated coverage:
+```bash
+npm run test
+deno test backend/tests/functions/customer_portal_test.ts
+deno test backend/tests/functions/customer_notify_test.ts
+pg_prove backend/tests/rls/customer_portal.sql
+```
+
+To try the portal locally:
+1. Open `http://localhost:8080/portal` and request a magic link using the demo customer email (`jonas.jonaitis@email.com`).
+2. Copy the `token` returned from the `customer-portal` function logs and visit `http://localhost:8080/portal/session?token=<TOKEN>`.
+3. Review the work order status, send messages, and approve/decline the demo estimate.
 
 ### Demo Accounts
 
