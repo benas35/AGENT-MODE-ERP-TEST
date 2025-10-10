@@ -197,13 +197,13 @@ values
   ),
   (
     '550e8400-e29b-41d4-a716-446655440103',
-    '550e8400-e29b-41d4-a716-446655440000',
-    'MANAGER',
-    'Lukas',
-    'Sirvydis',
-    'lukas@profixauto.com',
-    true
-  )
+  '550e8400-e29b-41d4-a716-446655440000',
+  'MANAGER',
+  'Lukas',
+  'Sirvydis',
+  'lukas@profixauto.com',
+  true
+)
 on conflict (id) do update set
   org_id = excluded.org_id,
   role = excluded.role,
@@ -211,6 +211,79 @@ on conflict (id) do update set
   last_name = excluded.last_name,
   email = excluded.email,
   active = excluded.active;
+
+insert into customer_notification_preferences (id, org_id, customer_id)
+values (
+  '550e8400-e29b-41d4-a716-446655440b00',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '550e8400-e29b-41d4-a716-446655440010'
+)
+on conflict (customer_id) do update set
+  notify_email = excluded.notify_email,
+  notify_sms = excluded.notify_sms,
+  notify_whatsapp = excluded.notify_whatsapp,
+  updated_at = now();
+
+insert into customer_portal_sessions (
+  id,
+  org_id,
+  customer_id,
+  work_order_id,
+  magic_token,
+  expires_at,
+  created_by
+)
+values (
+  '550e8400-e29b-41d4-a716-446655440b10',
+  '550e8400-e29b-41d4-a716-446655440000',
+  '550e8400-e29b-41d4-a716-446655440010',
+  '550e8400-e29b-41d4-a716-446655440a00',
+  '0e1b6a9030fce5df6c60d3ab8df27948b63ab095b33f7cb9a8f28c1af7f53fb9',
+  now() + interval '7 days',
+  '550e8400-e29b-41d4-a716-446655440101'
+)
+on conflict (id) do update set
+  expires_at = excluded.expires_at,
+  magic_token = excluded.magic_token;
+
+insert into customer_messages (
+  id,
+  org_id,
+  work_order_id,
+  customer_id,
+  sender_profile_id,
+  direction,
+  body,
+  metadata,
+  created_at
+)
+values
+  (
+    '550e8400-e29b-41d4-a716-446655440b20',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440a00',
+    '550e8400-e29b-41d4-a716-446655440010',
+    '550e8400-e29b-41d4-a716-446655440101',
+    'staff',
+    'We found a leaking caliper seal. Please review the photo evidence and approve.',
+    '{"type": "estimate", "estimate_id": "EST-2025-1001"}'::jsonb,
+    now() - interval '30 minutes'
+  ),
+  (
+    '550e8400-e29b-41d4-a716-446655440b21',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440a00',
+    '550e8400-e29b-41d4-a716-446655440010',
+    null,
+    'customer',
+    'Thanks for the update! Can you confirm warranty coverage before I approve?',
+    '{"type": "question"}'::jsonb,
+    now() - interval '20 minutes'
+  )
+on conflict (id) do update set
+  body = excluded.body,
+  metadata = excluded.metadata,
+  created_at = excluded.created_at;
 
 -- Seed messaging threads and messages
 insert into message_threads (id, org_id, work_order_id, participants, last_message_at, created_at)

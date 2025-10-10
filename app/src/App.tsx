@@ -24,6 +24,7 @@ import Settings from "./pages/Settings";
 import TireStorage from "./pages/TireStorage";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import PortalRoutes from "./pages/portal";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/auth" element={<Auth />} />
+            <Route path="/portal/*" element={<PortalRoutes />} />
             <Route
               path="/*"
               element={

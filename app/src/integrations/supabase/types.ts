@@ -735,7 +735,377 @@ export type Database = {
           },
         ]
       }
-      dvi_signatures: {
+      customer_messages: {
+        Row: {
+          attachments: Json
+          body: string
+          created_at: string
+          customer_id: string
+          direction: "staff" | "customer"
+          id: string
+          metadata: Json | null
+          org_id: string
+          read_by_customer_at: string | null
+          read_by_staff_at: string | null
+          sender_profile_id: string | null
+          work_order_id: string
+        }
+        Insert: {
+          attachments?: Json
+          body: string
+          created_at?: string
+          customer_id: string
+          direction?: "staff" | "customer"
+          id?: string
+          metadata?: Json | null
+          org_id: string
+          read_by_customer_at?: string | null
+          read_by_staff_at?: string | null
+          sender_profile_id?: string | null
+          work_order_id: string
+        }
+        Update: {
+          attachments?: Json
+          body?: string
+          created_at?: string
+          customer_id?: string
+          direction?: "staff" | "customer"
+          id?: string
+          metadata?: Json | null
+          org_id?: string
+          read_by_customer_at?: string | null
+          read_by_staff_at?: string | null
+          sender_profile_id?: string | null
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_messages_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_messages_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_messages_sender_profile_id_fkey"
+            columns: ["sender_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_messages_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_notification_preferences: {
+        Row: {
+          customer_id: string
+          id: string
+          notify_email: boolean
+          notify_sms: boolean
+          notify_whatsapp: boolean
+          org_id: string
+          updated_at: string
+        }
+        Insert: {
+          customer_id: string
+          id?: string
+          notify_email?: boolean
+          notify_sms?: boolean
+          notify_whatsapp?: boolean
+          org_id: string
+          updated_at?: string
+        }
+        Update: {
+          customer_id?: string
+          id?: string
+          notify_email?: boolean
+          notify_sms?: boolean
+          notify_whatsapp?: boolean
+          org_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_notification_preferences_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_notification_preferences_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_portal_sessions: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          expires_at: string
+          id: string
+          magic_token: string
+          org_id: string
+          work_order_id: string | null
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id: string
+          expires_at: string
+          id?: string
+          magic_token: string
+          org_id: string
+          work_order_id?: string | null
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string
+          expires_at?: string
+          id?: string
+          magic_token?: string
+          org_id?: string
+          work_order_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_portal_sessions_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_portal_sessions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_portal_sessions_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_portal_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+
+  ]
+}
+customer_messages: {
+  Row: {
+    attachments: Json
+    body: string
+    created_at: string
+    customer_id: string
+    direction: "staff" | "customer"
+    id: string
+    metadata: Json | null
+    org_id: string
+    read_by_customer_at: string | null
+    read_by_staff_at: string | null
+    sender_profile_id: string | null
+    work_order_id: string
+  }
+  Insert: {
+    attachments?: Json
+    body: string
+    created_at?: string
+    customer_id: string
+    direction?: "staff" | "customer"
+    id?: string
+    metadata?: Json | null
+    org_id: string
+    read_by_customer_at?: string | null
+    read_by_staff_at?: string | null
+    sender_profile_id?: string | null
+    work_order_id: string
+  }
+  Update: {
+    attachments?: Json
+    body?: string
+    created_at?: string
+    customer_id?: string
+    direction?: "staff" | "customer"
+    id?: string
+    metadata?: Json | null
+    org_id?: string
+    read_by_customer_at?: string | null
+    read_by_staff_at?: string | null
+    sender_profile_id?: string | null
+    work_order_id?: string
+  }
+  Relationships: [
+    {
+      foreignKeyName: "customer_messages_customer_id_fkey"
+      columns: ["customer_id"]
+      isOneToOne: false
+      referencedRelation: "customers"
+      referencedColumns: ["id"]
+    },
+    {
+      foreignKeyName: "customer_messages_org_id_fkey"
+      columns: ["org_id"]
+      isOneToOne: false
+      referencedRelation: "organizations"
+      referencedColumns: ["id"]
+    },
+    {
+      foreignKeyName: "customer_messages_sender_profile_id_fkey"
+      columns: ["sender_profile_id"]
+      isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },
+    {
+      foreignKeyName: "customer_messages_work_order_id_fkey"
+      columns: ["work_order_id"]
+      isOneToOne: false
+      referencedRelation: "work_orders"
+      referencedColumns: ["id"]
+    },
+  ]
+}
+customer_notification_preferences: {
+  Row: {
+    customer_id: string
+    id: string
+    notify_email: boolean
+    notify_sms: boolean
+    notify_whatsapp: boolean
+    org_id: string
+    updated_at: string
+  }
+  Insert: {
+    customer_id: string
+    id?: string
+    notify_email?: boolean
+    notify_sms?: boolean
+    notify_whatsapp?: boolean
+    org_id: string
+    updated_at?: string
+  }
+  Update: {
+    customer_id?: string
+    id?: string
+    notify_email?: boolean
+    notify_sms?: boolean
+    notify_whatsapp?: boolean
+    org_id?: string
+    updated_at?: string
+  }
+  Relationships: [
+    {
+      foreignKeyName: "customer_notification_preferences_customer_id_fkey"
+      columns: ["customer_id"]
+      isOneToOne: true
+      referencedRelation: "customers"
+      referencedColumns: ["id"]
+    },
+    {
+      foreignKeyName: "customer_notification_preferences_org_id_fkey"
+      columns: ["org_id"]
+      isOneToOne: false
+      referencedRelation: "organizations"
+      referencedColumns: ["id"]
+    },
+  ]
+}
+customer_portal_sessions: {
+  Row: {
+    consumed_at: string | null
+    created_at: string
+    created_by: string | null
+    customer_id: string
+    expires_at: string
+    id: string
+    magic_token: string
+    org_id: string
+    work_order_id: string | null
+  }
+  Insert: {
+    consumed_at?: string | null
+    created_at?: string
+    created_by?: string | null
+    customer_id: string
+    expires_at: string
+    id?: string
+    magic_token: string
+    org_id: string
+    work_order_id?: string | null
+  }
+  Update: {
+    consumed_at?: string | null
+    created_at?: string
+    created_by?: string | null
+    customer_id?: string
+    expires_at?: string
+    id?: string
+    magic_token?: string
+    org_id?: string
+    work_order_id?: string | null
+  }
+  Relationships: [
+    {
+      foreignKeyName: "customer_portal_sessions_customer_id_fkey"
+      columns: ["customer_id"]
+      isOneToOne: false
+      referencedRelation: "customers"
+      referencedColumns: ["id"]
+    },
+    {
+      foreignKeyName: "customer_portal_sessions_org_id_fkey"
+      columns: ["org_id"]
+      isOneToOne: false
+      referencedRelation: "organizations"
+      referencedColumns: ["id"]
+    },
+    {
+      foreignKeyName: "customer_portal_sessions_work_order_id_fkey"
+      columns: ["work_order_id"]
+      isOneToOne: false
+      referencedRelation: "work_orders"
+      referencedColumns: ["id"]
+    },
+    {
+      foreignKeyName: "customer_portal_sessions_created_by_fkey"
+      columns: ["created_by"]
+      isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },
+  ]
+}
+dvi_signatures
+: {
         Row: {
           created_at: string | null
           dvi_id: string
@@ -4466,9 +4836,20 @@ export type Database = {
           resource_name: string
         }[]
       }
+
       create_work_order_from_appointment: {
         Args: { p_appointment_id: string }
         Returns: string
+      }
+      customer_portal_update_work_order: {
+        Args: {
+          p_comment?: string | null
+          p_customer_id: string
+          p_org_id: string
+          p_status: string
+          p_work_order_id: string
+        }
+        Returns: Json
       }
       find_available_slots: {
         Args: {
