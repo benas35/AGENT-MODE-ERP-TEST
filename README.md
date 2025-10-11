@@ -257,6 +257,36 @@ const { data } = await supabase
   .order('created_at', { ascending: false })
 ```
 
+### Phase 2 / Task A
+
+- Use `app/src/app/ErrorBoundary.tsx` for global and route fallbacks (`createRouteErrorBoundary`).
+- Default React Query retry/backoff lives in `app/src/lib/queryClient.ts`.
+- Wrap new routes with `RouteBoundary` or export a `createRouteErrorBoundary` call for consistent UX.
+
+### Phase 2 / Task B
+
+- Skeleton loaders live in `app/src/components/skeletons` and expose `role="status"`/`aria-busy` for tables, cards, and media grids.
+- The shared upload queue is implemented in `app/src/features/uploads/useUploadQueue.ts` (supports enqueue, retry, cancel, dismiss).
+- Vehicle and work-order media features consume the queue for per-file progress; pass queue items to `WorkOrderPhotoTimeline` to surface upload status.
+
+### Phase 2 / Task C
+
+- Undo workflows rely on `registerUndo`/`createUndoDeferred` from `app/src/lib/undo.tsx` to delay commits and wire the toast-driven cancel action.
+- Wrap React Query mutations with deferred promises (`onMutate` + `UndoCancelledError`) so `undo` restores cached snapshots and `do` performs the real mutation after the TTL.
+- Map mutation failures through `mapErrorToFriendlyMessage` to surface consistent destructive/error toasts when optimistic changes cannot be committed.
+
+### Phase 2 / Task D
+
+- Shared Zod/RHF primitives live in `app/src/lib/validation.ts` (`stringNonEmpty`, `safeSubmit`, `schemaResolver`) and power the caption editors plus the quick-reply manager.
+- Media caption dialogs/forms follow the pattern in `VehicleMediaGallery` and `WorkOrderPhotoTimeline`, using `mediaCaptionSchema` and `FormField` to surface live errors and character counts.
+- Confirmation prompts respect the “Don’t show again” preference keys via `app/src/lib/preferences.ts`; reuse `ConfirmationDialog` with a unique `preferenceKey` for destructive or status-changing flows.
+
+### Phase 2 / Task E
+
+- Reuse the lightweight animation in `app/src/components/feedback/SuccessCheck.tsx` to confirm uploads or sends—mount it with a success message and let it auto-dismiss.
+- Media upload flows enqueue progress via the shared queue; see `VehicleMediaUploader` and `WorkOrderPhotoSection` for wiring success indicators to queue state.
+- Empty states and illustrations live in `app/src/assets/empties`; import the SVGs to keep gallery, timeline, and inbox blanks consistent and include a CTA button.
+
 ## Contributing
 
 1. Fork the repository

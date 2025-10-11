@@ -1,9 +1,10 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { createThumbPath } from "@/features/work-orders/utils/media";
+import { useUploadQueue, UploadQueueItem } from "@/features/uploads/useUploadQueue";
 
 export type WorkOrderMediaCategory = "before" | "after" | "issue" | "damage" | "progress";
 
@@ -23,6 +24,24 @@ export interface WorkOrderMediaItem {
 }
 
 const queryKey = (workOrderId?: string) => ["work-order-media", workOrderId];
+
+type MutationContext = {
+  previous?: WorkOrderMediaItem[];
+  undoHandle?: UndoHandle;
+};
+
+interface DeleteVariables {
+  item: WorkOrderMediaItem;
+  deferred: UndoDeferred;
+}
+
+export interface WorkOrderUploadMeta {
+  category: WorkOrderMediaCategory;
+  caption?: string | null;
+  gps?: { lat: number; lng: number; accuracy?: number } | null;
+}
+
+export type WorkOrderUploadQueueItem = UploadQueueItem<File, WorkOrderUploadMeta, { record?: { id: string } }>;
 
 export const useWorkOrderMedia = (workOrderId?: string) => {
   const queryClient = useQueryClient();
@@ -105,15 +124,15 @@ export const useWorkOrderMedia = (workOrderId?: string) => {
     return queryClient.invalidateQueries({ queryKey: queryKey(workOrderId) });
   }, [queryClient, workOrderId]);
 
-  const uploadMutation = useMutation({
-    mutationFn: async (
-      variables: {
-        file: File;
-        category: WorkOrderMediaCategory;
-        caption?: string | null;
-        gps?: { lat: number; lng: number; accuracy?: number } | null;
-      },
-    ) => {
+  const {
+    items: uploadQueueItems,
+    enqueue: enqueueUpload,
+    cancel: cancelUpload,
+    retry: retryUpload,
+    remove: removeUpload,
+  } = useUploadQueue<File, WorkOrderUploadMeta, { record?: { id: string } }>({
+    context: "uploading work order media",
+    uploadFn: async ({ item, signal, updateProgress }) => {
       if (!profile?.org_id) {
         throw new Error("Missing organization context for upload");
       }
@@ -122,17 +141,35 @@ export const useWorkOrderMedia = (workOrderId?: string) => {
         throw new Error("workOrderId is required to upload media");
       }
 
+      const { category, caption, gps } = item.meta ?? { category: "issue" as WorkOrderMediaCategory };
+
+      if (signal.aborted) {
+        const abortError = new Error("Upload cancelled");
+        abortError.name = "AbortError";
+        throw abortError;
+      }
+
+      updateProgress(12);
+
       const formData = new FormData();
       formData.append("orgId", profile.org_id);
       formData.append("workOrderId", workOrderId);
-      formData.append("category", variables.category);
-      if (variables.caption) formData.append("caption", variables.caption);
-      if (variables.gps) formData.append("gps", JSON.stringify(variables.gps));
-      formData.append("file", variables.file, variables.file.name);
+      formData.append("category", category);
+      if (caption) formData.append("caption", caption);
+      if (gps) formData.append("gps", JSON.stringify(gps));
+      formData.append("file", item.payload, item.payload.name);
+
+      updateProgress(40);
 
       const { data, error } = await supabase.functions.invoke("media-process", {
         body: formData,
       });
+
+      if (signal.aborted) {
+        const abortError = new Error("Upload cancelled");
+        abortError.name = "AbortError";
+        throw abortError;
+      }
 
       if (error) {
         throw new Error(error.message ?? "Unable to upload media");
@@ -140,13 +177,13 @@ export const useWorkOrderMedia = (workOrderId?: string) => {
 
       const record = (data as { record?: { id: string } } | null)?.record;
 
-      if (record && variables.category === "issue") {
+      if (record && category === "issue") {
         const { error: notifyError } = await supabase.functions.invoke("notify-customer", {
           body: {
             orgId: profile.org_id,
             workOrderId,
             mediaId: record.id,
-            category: variables.category,
+            category,
           },
         });
 
@@ -155,7 +192,9 @@ export const useWorkOrderMedia = (workOrderId?: string) => {
         }
       }
 
-      return data;
+      updateProgress(90);
+
+      return data as { record?: { id: string } } | null;
     },
     onSuccess: async () => {
       await invalidate();
@@ -164,17 +203,52 @@ export const useWorkOrderMedia = (workOrderId?: string) => {
         description: "Media has been processed and saved",
       });
     },
-    onError: (error: Error) => {
+    onError: (_item, friendly) => {
       toast({
-        title: "Upload failed",
-        description: error.message,
+        title: friendly.title,
+        description: friendly.description,
         variant: "destructive",
       });
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (item: WorkOrderMediaItem) => {
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    uploadQueueItems.forEach((item) => {
+      if (item.status === "success") {
+        timers.push(
+          setTimeout(() => {
+            removeUpload(item.id);
+          }, 2400),
+        );
+      }
+
+      if (item.status === "error") {
+        timers.push(
+          setTimeout(() => {
+            removeUpload(item.id);
+          }, 10000),
+        );
+      }
+    });
+
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+    };
+  }, [uploadQueueItems, removeUpload]);
+
+  const deleteMutation = useMutation<void, unknown, DeleteVariables, MutationContext>({
+    mutationFn: async ({ item, deferred }) => {
+      try {
+        await deferred.promise;
+      } catch (error) {
+        if (isUndoError(error)) {
+          throw error;
+        }
+        throw error;
+      }
+
       const { error: deleteError } = await supabase
         .from("work_order_media")
         .delete()
@@ -196,25 +270,54 @@ export const useWorkOrderMedia = (workOrderId?: string) => {
         throw storageError;
       }
     },
-    onMutate: async (item) => {
+    onMutate: async ({ item, deferred }) => {
+      await queryClient.cancelQueries({ queryKey: queryKey(workOrderId) });
       const previous = queryClient.getQueryData<WorkOrderMediaItem[]>(queryKey(workOrderId));
-      queryClient.setQueryData<WorkOrderMediaItem[]>(queryKey(workOrderId), (old = []) => old.filter((media) => media.id !== item.id));
-      return { previous };
+      queryClient.setQueryData<WorkOrderMediaItem[]>(queryKey(workOrderId), (old = []) =>
+        old.filter((media) => media.id !== item.id),
+      );
+
+      const undoHandle = registerUndo({
+        label: "Work order photo deleted",
+        description: "Undo within 5 seconds to keep this photo.",
+        ttlMs: 5000,
+        do: () => {
+          deferred.resolve();
+        },
+        undo: async () => {
+          deferred.reject(new UndoCancelledError());
+          if (previous) {
+            queryClient.setQueryData(queryKey(workOrderId), previous);
+          }
+        },
+      });
+
+      return { previous, undoHandle };
     },
     onError: (error, _variables, context) => {
+      context?.undoHandle?.dispose();
+
+      if (isUndoError(error)) {
+        return;
+      }
+
       if (context?.previous) {
         queryClient.setQueryData(queryKey(workOrderId), context.previous);
       }
+
+      const friendly = mapErrorToFriendlyMessage(error, "deleting the work order photo");
       toast({
-        title: "Failed to delete photo",
-        description: error instanceof Error ? error.message : "Unexpected error",
+        title: friendly.title,
+        description: friendly.description,
         variant: "destructive",
       });
     },
-    onSuccess: () => {
-      toast({ title: "Photo deleted" });
+    onSettled: async (_data, error, _variables, context) => {
+      context?.undoHandle?.dispose();
+      if (!error || !isUndoError(error)) {
+        await invalidate();
+      }
     },
-    onSettled: invalidate,
   });
 
   const updateCaptionMutation = useMutation({
@@ -289,18 +392,52 @@ export const useWorkOrderMedia = (workOrderId?: string) => {
     );
   }, [mediaQuery.data]);
 
+  const uploadMedia = useCallback(
+    async (payload: {
+      file: File;
+      category: WorkOrderMediaCategory;
+      caption?: string | null;
+      gps?: { lat: number; lng: number; accuracy?: number } | null;
+    }) => {
+      enqueueUpload({
+        fileName: payload.file.name,
+        size: payload.file.size,
+        payload: payload.file,
+        meta: {
+          category: payload.category,
+          caption: payload.caption ?? null,
+          gps: payload.gps ?? null,
+        },
+      });
+    },
+    [enqueueUpload],
+  );
+
+  const deleteMedia = useCallback(
+    async (item: WorkOrderMediaItem) => {
+      const deferred = createUndoDeferred();
+      deferred.promise.catch(() => undefined);
+      deleteMutation.mutate({ item, deferred });
+    },
+    [deleteMutation],
+  );
+
   return {
     media: mediaQuery.data ?? [],
     isLoading: mediaQuery.isLoading,
     error: mediaQuery.error,
     groupedMedia: grouped,
-    uploadMedia: uploadMutation.mutateAsync,
-    deleteMedia: deleteMutation.mutateAsync,
+    uploadMedia,
+    deleteMedia,
     updateCaption: updateCaptionMutation.mutateAsync,
     updateCategory: updateCategoryMutation.mutateAsync,
-    isUploading: uploadMutation.isPending,
+    isUploading: uploadQueueItems.some((item) => item.status === "queued" || item.status === "uploading"),
     isDeleting: deleteMutation.isPending,
     isUpdatingCaption: updateCaptionMutation.isPending,
+    uploadQueueItems,
+    cancelUpload,
+    retryUpload,
+    removeUpload,
     refresh: invalidate,
   };
 };
