@@ -1,218 +1,132 @@
-import React, { useState } from 'react';
-import { Calendar, Clock, Users, MapPin, Plus, Filter, Search, Grid3X3, List, Eye, Layout } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlannerHeader } from '@/components/planner/PlannerHeader';
-import { ResourceTimeline } from '@/components/planner/ResourceTimeline';
-import { CreateAppointmentModal } from '@/components/planner/CreateAppointmentModal';
-import { MiniCalendar } from '@/components/planner/MiniCalendar';
-import { CapacityIndicator } from '@/components/planner/CapacityIndicator';
-import { AdvancedPlannerBoard } from '@/components/planner/AdvancedPlannerBoard';
-import { ColumnarPlannerView } from '@/components/planner/ColumnarPlannerView';
-import { useTechnicians } from '@/hooks/useTechnicians';
+import { useMemo, useState } from "react";
+import { addDays } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { CalendarIcon, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { PlannerBoard } from "@/features/planner/PlannerBoard";
+import {
+  usePlannerAppointments,
+  usePlannerBays,
+  usePlannerTechnicians,
+  type PlannerBay,
+} from "@/features/planner/hooks";
+import { ORG_TIMEZONE } from "@/features/planner/types";
 
 const Planner = () => {
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [currentView, setCurrentView] = useState<'day' | 'week' | 'month' | 'timeline'>('day');
-  const [plannerLayout, setPlannerLayout] = useState<'columnar' | 'timeline'>('columnar');
-  const [selectedResource, setSelectedResource] = useState<'all' | 'technicians' | 'bays'>('technicians');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState('all');
-  const [showFilters, setShowFilters] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedBayId, setSelectedBayId] = useState<string | null>(null);
 
-  const { technicians, loading: techniciansLoading } = useTechnicians();
+  const techniciansQuery = usePlannerTechnicians();
+  const baysQuery = usePlannerBays();
+  const appointmentsQuery = usePlannerAppointments(selectedDate, { bayId: selectedBayId });
 
-  const handleViewChange = (view: 'day' | 'week' | 'month' | 'timeline') => {
-    setCurrentView(view);
+  const isLoading = techniciansQuery.isLoading || appointmentsQuery.isLoading;
+  const isMutating = appointmentsQuery.isMutating;
+
+  const dateLabel = formatInTimeZone(selectedDate, ORG_TIMEZONE, "EEEE, MMM d");
+  const bayOptions = useMemo(() => {
+    const bays: PlannerBay[] = baysQuery.data ?? [];
+    if (bays.length > 0) {
+      return bays;
+    }
+
+    const fallback = new Map<string, string>();
+    for (const appointment of appointmentsQuery.appointments) {
+      if (appointment.bayId && !fallback.has(appointment.bayId)) {
+        fallback.set(appointment.bayId, `Bay ${appointment.bayId.slice(0, 4).toUpperCase()}`);
+      }
+    }
+
+    return Array.from(fallback.entries()).map(([id, name]) => ({ id, name }));
+  }, [appointmentsQuery.appointments, baysQuery.data]);
+
+  const handlePrevDay = () => setSelectedDate((prev) => addDays(prev, -1));
+  const handleNextDay = () => setSelectedDate((prev) => addDays(prev, 1));
+  const handleToday = () => setSelectedDate(new Date());
+
+  const refreshAppointments = () => {
+    void appointmentsQuery.refetch();
   };
 
-  const handleDateSelect = (date: Date) => {
-    setSelectedDate(date);
-  };
-
-  const handleCreateAppointment = (appointmentData: any) => {
-    console.log('Creating appointment:', appointmentData);
-    // TODO: Implement appointment creation API call
-    setShowCreateDialog(false);
-  };
-
-  const quickActions = [
-    { label: 'Oil Change', color: 'bg-emerald-500', duration: '30 min' },
-    { label: 'Brake Service', color: 'bg-amber-500', duration: '90 min' },
-    { label: 'Inspection', color: 'bg-blue-500', duration: '60 min' },
-    { label: 'Diagnostics', color: 'bg-red-500', duration: '120 min' },
-  ];
+  const bayValue = selectedBayId ?? "all";
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      {/* Left Sidebar */}
-      <div className="w-80 border-r border-border bg-card flex flex-col">
-        {/* Header */}
-        <div className="p-6 border-b border-border">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-foreground">Planner</h1>
-            <Button onClick={() => setShowCreateDialog(true)} size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              New
-            </Button>
-          </div>
-          
-          {/* Search */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input 
-              placeholder="Search appointments..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
+    <div className="flex h-full flex-col gap-6 p-6">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Planner</h1>
+          <p className="text-sm text-muted-foreground">
+            Drag appointments to adjust times, reassign technicians, or resize durations in fifteen-minute increments.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handlePrevDay} aria-label="Previous day">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleToday}>
+            Today
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleNextDay} aria-label="Next day">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={refreshAppointments}
+            aria-label="Refresh appointments"
+            disabled={appointmentsQuery.isFetching || isMutating}
+          >
+            <RefreshCw
+              className={cn(
+                "h-4 w-4",
+                appointmentsQuery.isFetching || isMutating ? "animate-spin" : undefined
+              )}
             />
-          </div>
-          
-          {/* Location Filter */}
-          <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select location" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Locations</SelectItem>
-              <SelectItem value="main">Main Location</SelectItem>
-            </SelectContent>
-          </Select>
+          </Button>
         </div>
+      </header>
 
-        {/* Mini Calendar */}
-        <div className="p-4 border-b border-border">
-          <MiniCalendar 
-            selectedDate={selectedDate}
-            onDateSelect={handleDateSelect}
-          />
-        </div>
-
-        {/* Quick Actions */}
-        <div className="p-4 border-b border-border">
-          <h3 className="text-sm font-medium text-foreground mb-3">Quick Book</h3>
-          <div className="grid grid-cols-2 gap-2">
-            {quickActions.map((action) => (
-              <Button
-                key={action.label}
-                variant="ghost"
-                size="sm"
-                className="h-auto p-3 flex flex-col items-start gap-1 border border-border hover:bg-accent"
-                onClick={() => setShowCreateDialog(true)}
-              >
-                <div className={`w-3 h-3 rounded-full ${action.color}`} />
-                <span className="text-xs font-medium">{action.label}</span>
-                <span className="text-xs text-muted-foreground">{action.duration}</span>
-              </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <Badge variant="secondary" className="flex items-center gap-2 px-3 py-1 text-sm font-medium">
+          <CalendarIcon className="h-4 w-4" aria-hidden />
+          {dateLabel}
+        </Badge>
+        <span className="text-xs text-muted-foreground">Times shown in Europe/Vilnius</span>
+        <Select
+          value={bayValue}
+          onValueChange={(value) => setSelectedBayId(value === "all" ? null : value)}
+          disabled={baysQuery.isLoading && bayOptions.length === 0}
+        >
+          <SelectTrigger className="w-[200px]" aria-label="Filter by bay">
+            <SelectValue placeholder="All bays" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All bays</SelectItem>
+            {bayOptions.map((bay) => (
+              <SelectItem key={bay.id} value={bay.id}>
+                {bay.name}
+              </SelectItem>
             ))}
-          </div>
-        </div>
-
-        {/* Capacity Overview */}
-        <div className="p-4 flex-1">
-          <h3 className="text-sm font-medium text-foreground mb-3">Today's Capacity</h3>
-          {techniciansLoading ? (
-            <div className="animate-pulse">
-              <div className="h-4 bg-muted rounded mb-2"></div>
-              <div className="h-4 bg-muted rounded mb-2"></div>
-              <div className="h-4 bg-muted rounded"></div>
-            </div>
-          ) : technicians.length > 0 ? (
-            <div className="space-y-3">
-              {technicians.map((tech) => (
-                <div key={tech.id} className="flex items-center gap-2">
-                  <div 
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: tech.color }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium truncate">{tech.display_name}</div>
-                    <div className="w-full bg-muted rounded-full h-1.5">
-                      <div 
-                        className="bg-primary h-1.5 rounded-full" 
-                        style={{ width: '45%' }}
-                      />
-                    </div>
-                  </div>
-                  <span className="text-xs text-muted-foreground">45%</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center p-4 text-muted-foreground">
-              <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No active technicians</p>
-              <Button variant="outline" size="sm" className="mt-2">
-                Add Technician
-              </Button>
-            </div>
-          )}
-        </div>
+          </SelectContent>
+        </Select>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <PlannerHeader
-          selectedDate={selectedDate}
-          onDateSelect={handleDateSelect}
-          view={currentView}
-          onViewChange={handleViewChange}
-          resourceFilter={selectedResource}
-          onResourceFilterChange={setSelectedResource}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          selectedLocation={selectedLocation}
-          onLocationChange={setSelectedLocation}
-          onCreateNew={() => setShowCreateDialog(true)}
+      <div className="relative flex-1 overflow-hidden rounded-lg border bg-card">
+        <PlannerBoard
+          date={selectedDate}
+          technicians={techniciansQuery.data ?? []}
+          appointments={appointmentsQuery.appointments}
+          activeBayId={selectedBayId}
+          isLoading={isLoading && !appointmentsQuery.appointments.length}
+          onAppointmentMove={appointmentsQuery.moveAppointment}
+          onAppointmentResize={appointmentsQuery.resizeAppointment}
+          onAppointmentClick={(id) => console.debug("Open appointment", id)}
+          canSchedule={appointmentsQuery.canSchedule}
         />
-
-        {/* Calendar Views */}
-        <div className="flex-1 overflow-hidden">
-          {currentView === 'day' && plannerLayout === 'columnar' ? (
-            <ColumnarPlannerView
-              selectedDate={selectedDate}
-              resourceType={selectedResource === 'technicians' ? 'technicians' : 'workzones'}
-              searchQuery={searchQuery}
-              onAppointmentClick={(appointmentId) => {
-                console.log('Appointment clicked:', appointmentId);
-                // TODO: Implement appointment details modal
-              }}
-            />
-          ) : currentView === 'timeline' || plannerLayout === 'timeline' ? (
-            <ResourceTimeline
-              selectedDate={selectedDate}
-              resourceFilter={selectedResource}
-              searchQuery={searchQuery}
-            />
-          ) : (
-            <div className="h-full p-6 overflow-auto">
-              <AdvancedPlannerBoard
-                selectedDate={selectedDate}
-                view={currentView}
-                onDateSelect={handleDateSelect}
-                onAppointmentClick={(appointmentId) => {
-                  console.log('Appointment clicked:', appointmentId);
-                  // TODO: Implement appointment details modal
-                }}
-              />
-            </div>
-          )}
-        </div>
       </div>
-
-      {/* Create Appointment Dialog */}
-      <CreateAppointmentModal
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        selectedDate={selectedDate}
-        onSuccess={() => setShowCreateDialog(false)}
-      />
     </div>
   );
 };

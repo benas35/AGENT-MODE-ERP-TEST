@@ -293,6 +293,12 @@ const { data } = await supabase
 - Demo technicians, bays, and appointments seed against the ProFix organization and use Europe/Vilnius local time converted to stored UTC.
 - Keep planner timestamps in UTC in the database while formatting in Europe/Vilnius on the frontend.
 
+### Phase 3 / Part B
+
+- The interactive planner board lives in `app/src/features/planner` (`PlannerBoard`, `AppointmentCard`, `ResizeHandle`) and powers the `/planner` page.
+- Fetch technicians, bays, and day appointments via `usePlannerTechnicians`, `usePlannerBays`, and `usePlannerAppointments` to enable drag, resize, and Supabase `can_schedule` validation with 15-minute snapping.
+- `PlannerBoard` accepts the bay filter, mutation handlers, and emits resolved ISO timestamps so new routes can adopt consistent planner UX quickly.
+
 ## Contributing
 
 1. Fork the repository
