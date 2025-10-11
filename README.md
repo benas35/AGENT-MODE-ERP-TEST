@@ -299,6 +299,12 @@ const { data } = await supabase
 - Fetch technicians, bays, and day appointments via `usePlannerTechnicians`, `usePlannerBays`, and `usePlannerAppointments` to enable drag, resize, and Supabase `can_schedule` validation with 15-minute snapping.
 - `PlannerBoard` accepts the bay filter, mutation handlers, and emits resolved ISO timestamps so new routes can adopt consistent planner UX quickly.
 
+### Phase 3 / Part C
+
+- Launch the edit/create experience with `EditAppointmentDrawer`—pass planner technicians/bays plus either an existing appointment or slot defaults and handle its `onSubmit` with the planner mutations.
+- React Query optimistic flows for create/update live in `usePlannerAppointments`; call `createAppointment`/`updateAppointment` after `canSchedule` to keep caches warm while Supabase persists changes.
+- Form date inputs expect Europe/Vilnius local strings (`datetime-local` with 15-minute steps) and convert back to UTC via `zonedTimeToUtc` before saving.
+
 ## Contributing
 
 1. Fork the repository

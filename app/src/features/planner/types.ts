@@ -17,7 +17,9 @@ export interface PlannerAppointment {
   startsAt: string;
   endsAt: string;
   notes: string | null;
+  customerId: string | null;
   customerName: string | null;
+  vehicleId: string | null;
   vehicleLabel: string | null;
   priority: number;
 }
@@ -41,7 +43,27 @@ export interface CanScheduleInput {
   bayId: string | null;
   startsAt: string;
   endsAt: string;
+  appointmentId?: string | null;
 }
 
 export const ORG_TIMEZONE = "Europe/Vilnius";
 export const MIN_SLOT_MINUTES = 15;
+export const DEFAULT_APPOINTMENT_MINUTES = 60;
+
+export interface PlannerEditableFields {
+  title: string;
+  technicianId: string | null;
+  bayId: string | null;
+  status: PlannerStatus;
+  startsAt: string;
+  endsAt: string;
+  notes: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  vehicleId: string | null;
+  vehicleLabel: string | null;
+}
+
+export interface PlannerUpdatePayload extends PlannerEditableFields {
+  id: string;
+}

@@ -198,7 +198,8 @@ create or replace function can_schedule(
   _technician uuid,
   _bay uuid,
   _start timestamptz,
-  _end timestamptz
+  _end timestamptz,
+  _appointment uuid default null
 ) returns boolean
 language plpgsql
 stable
@@ -210,6 +211,7 @@ begin
     select 1
     from appointments a
     where a.org_id = _org
+      and (_appointment is null or a.id <> _appointment)
       and tstzrange(a.starts_at, a.ends_at, '[)') && tstzrange(_start, _end, '[)')
       and (
         (_technician is not null and a.technician_id = _technician)

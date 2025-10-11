@@ -73,6 +73,7 @@ export const AppointmentCard = ({
     if (!onOpen) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
+      event.stopPropagation();
       onOpen();
     }
   };
@@ -99,7 +100,11 @@ export const AppointmentCard = ({
       role="button"
       tabIndex={0}
       aria-label={`${appointment.title} ${timeRange}`}
-      onClick={onOpen}
+      data-appointment-card="true"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen?.();
+      }}
       onKeyDown={handleKeyDown}
     >
       <ResizeHandle direction="start" onPointerDown={onResizeStart("start")} />

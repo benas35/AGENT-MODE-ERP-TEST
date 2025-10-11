@@ -18,6 +18,7 @@ import {
   type PlannerMovePayload,
   type PlannerResizePayload,
   type PlannerTechnician,
+  DEFAULT_APPOINTMENT_MINUTES,
   MIN_SLOT_MINUTES,
 } from "./types";
 import { AppointmentCard } from "./AppointmentCard";
@@ -32,6 +33,12 @@ interface PlannerBoardProps {
   onAppointmentMove: (payload: PlannerMovePayload) => Promise<void>;
   onAppointmentResize: (payload: PlannerResizePayload) => Promise<void>;
   onAppointmentClick?: (id: string) => void;
+  onSlotCreate?: (payload: {
+    technicianId: string | null;
+    bayId: string | null;
+    startsAt: string;
+    endsAt: string;
+  }) => void;
   canSchedule: (input: CanScheduleInput) => Promise<boolean>;
 }
 
@@ -61,6 +68,7 @@ export const PlannerBoard = ({
   onAppointmentMove,
   onAppointmentResize,
   onAppointmentClick,
+  onSlotCreate,
   canSchedule,
 }: PlannerBoardProps) => {
   const filteredAppointments = useMemo(
@@ -194,6 +202,35 @@ export const PlannerBoard = ({
     pointerPosition.current = event.clientY;
   }, []);
 
+  const handleLaneClick = useCallback(
+    (laneId: string | null) => (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!onSlotCreate) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-appointment-card="true"]')) {
+        return;
+      }
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const normalized = Math.max(0, Math.min(event.clientY - rect.top, totalPixels));
+      const rawStart = pixelsToTime(normalized, boardWindow.start);
+      const maxStartCandidate = addMinutes(boardWindow.end, -DEFAULT_APPOINTMENT_MINUTES);
+      const maxStart =
+        maxStartCandidate.getTime() < boardWindow.start.getTime()
+          ? boardWindow.start
+          : maxStartCandidate;
+      const start = clampDate(rawStart, boardWindow.start, maxStart);
+      const end = addMinutes(start, DEFAULT_APPOINTMENT_MINUTES);
+
+      onSlotCreate({
+        technicianId: laneId,
+        bayId: activeBayId ?? null,
+        startsAt: toUtcIso(start),
+        endsAt: toUtcIso(end),
+      });
+    },
+    [activeBayId, boardWindow.end, boardWindow.start, onSlotCreate, totalPixels]
+  );
+
   const handleDragStart = useCallback(
     (start: DragStart) => {
       setDraggingId(start.draggableId);
@@ -282,6 +319,7 @@ export const PlannerBoard = ({
           bayId: derived.bayId,
           startsAt: payload.startsAt,
           endsAt: payload.endsAt,
+          appointmentId: draggableId,
         });
 
         if (!allowed) {
@@ -390,6 +428,7 @@ export const PlannerBoard = ({
               bayId: derived.bayId,
               startsAt: payload.startsAt,
               endsAt: payload.endsAt,
+              appointmentId: id,
             });
 
             if (!allowed) {
@@ -566,7 +605,11 @@ export const PlannerBoard = ({
                         />
                       ) : null}
                     </div>
-                    <div className="relative h-full" style={{ height: totalPixels }}>
+                    <div
+                      className="relative h-full"
+                      style={{ height: totalPixels }}
+                      onClick={handleLaneClick(technician ? technician.id : null)}
+                    >
                       {laneAppointments.map((appointment, index) => {
                         const override = optimistic[appointment.id];
                         const start = override?.start ?? appointment.startZoned;

@@ -13,11 +13,20 @@ import {
   usePlannerTechnicians,
   type PlannerBay,
 } from "@/features/planner/hooks";
+import { EditAppointmentDrawer } from "@/features/planner/EditAppointmentDrawer";
 import { ORG_TIMEZONE } from "@/features/planner/types";
+import { toast } from "@/hooks/use-toast";
+import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
+
+type DrawerState =
+  | { mode: "closed" }
+  | { mode: "create"; technicianId: string | null; bayId: string | null; startsAt: string; endsAt: string }
+  | { mode: "edit"; appointmentId: string };
 
 const Planner = () => {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [selectedBayId, setSelectedBayId] = useState<string | null>(null);
+  const [drawerState, setDrawerState] = useState<DrawerState>({ mode: "closed" });
 
   const techniciansQuery = usePlannerTechnicians();
   const baysQuery = usePlannerBays();
@@ -123,10 +132,72 @@ const Planner = () => {
           isLoading={isLoading && !appointmentsQuery.appointments.length}
           onAppointmentMove={appointmentsQuery.moveAppointment}
           onAppointmentResize={appointmentsQuery.resizeAppointment}
-          onAppointmentClick={(id) => console.debug("Open appointment", id)}
+          onAppointmentClick={(id) => setDrawerState({ mode: "edit", appointmentId: id })}
+          onSlotCreate={({ technicianId, bayId, startsAt, endsAt }) =>
+            setDrawerState({ mode: "create", technicianId, bayId, startsAt, endsAt })
+          }
           canSchedule={appointmentsQuery.canSchedule}
         />
       </div>
+
+      <EditAppointmentDrawer
+        open={drawerState.mode !== "closed"}
+        mode={drawerState.mode === "edit" ? "edit" : "create"}
+        technicians={techniciansQuery.data ?? []}
+        bays={bayOptions}
+        appointment={
+          drawerState.mode === "edit"
+            ? appointmentsQuery.appointments.find((item) => item.id === drawerState.appointmentId)
+            : undefined
+        }
+        defaults={
+          drawerState.mode === "create"
+            ? {
+                technicianId: drawerState.technicianId,
+                bayId: drawerState.bayId,
+                startsAt: drawerState.startsAt,
+                endsAt: drawerState.endsAt,
+              }
+            : null
+        }
+        isSubmitting={appointmentsQuery.isMutating}
+        onClose={() => setDrawerState({ mode: "closed" })}
+        onSubmit={async (values) => {
+          try {
+            const { technicianId, bayId, startsAt, endsAt } = values;
+            const conflictFree = await appointmentsQuery.canSchedule({
+              technicianId,
+              bayId,
+              startsAt,
+              endsAt,
+              appointmentId: drawerState.mode === "edit" ? drawerState.appointmentId : null,
+            });
+
+            if (!conflictFree) {
+              toast({
+                title: "Scheduling conflict",
+                description: "This time overlaps with another appointment for the technician or bay.",
+                variant: "destructive",
+              });
+              return;
+            }
+
+            if (drawerState.mode === "edit" && drawerState.appointmentId) {
+              await appointmentsQuery.updateAppointment({
+                id: drawerState.appointmentId,
+                ...values,
+              });
+            } else if (drawerState.mode === "create") {
+              await appointmentsQuery.createAppointment(values);
+            }
+
+            setDrawerState({ mode: "closed" });
+          } catch (error) {
+            const friendly = mapErrorToFriendlyMessage(error, "saving the appointment");
+            toast({ title: friendly.title, description: friendly.description, variant: "destructive" });
+          }
+        }}
+      />
     </div>
   );
 };

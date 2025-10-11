@@ -7,9 +7,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
 import type {
   CanScheduleInput,
+  PlannerEditableFields,
   PlannerAppointment,
   PlannerMovePayload,
   PlannerResizePayload,
+  PlannerUpdatePayload,
   PlannerTechnician,
 } from "./types";
 import { ORG_TIMEZONE } from "./types";
@@ -111,20 +113,59 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
   const queryClient = useQueryClient();
   const dateKey = getDateKey(date);
   const range = useMemo(() => getDateRange(date), [date]);
+  const queryKey = ["planner", "appointments", orgId, dateKey, bayId ?? "all"] as const;
+
+  const selectColumns = `
+    id, title, technician_id, bay_id, status, starts_at, ends_at, notes, priority, customer_id, vehicle_id,
+    customers:customers(first_name,last_name),
+    vehicles:vehicles(make, model, license_plate)
+  `;
+
+  const firstRelation = (relation: any) =>
+    Array.isArray(relation) ? relation[0] ?? null : relation ?? null;
+
+  const mapRowToAppointment = (row: any): PlannerAppointment => {
+    const customer = firstRelation(row.customers);
+    const vehicle = firstRelation(row.vehicles);
+    const customerName = customer
+      ? `${customer.first_name ?? ""} ${customer.last_name ?? ""}`.trim() || null
+      : null;
+    const vehicleLabel = vehicle
+      ? [vehicle.make, vehicle.model, vehicle.license_plate]
+          .filter(Boolean)
+          .map((part: string) => part.trim())
+          .join(" ") || null
+      : null;
+
+    return {
+      id: row.id,
+      title: row.title,
+      technicianId: row.technician_id,
+      bayId: row.bay_id,
+      status: row.status as PlannerAppointment["status"],
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      notes: row.notes ?? null,
+      customerId: row.customer_id ?? null,
+      customerName,
+      vehicleId: row.vehicle_id ?? null,
+      vehicleLabel,
+      priority: row.priority ?? 0,
+    } satisfies PlannerAppointment;
+  };
+
+  const sortAppointments = (items: PlannerAppointment[]) =>
+    [...items].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
 
   const query = useQuery<PlannerAppointment[]>({
     enabled: Boolean(orgId),
-    queryKey: ["planner", "appointments", orgId, dateKey, bayId ?? "all"],
+    queryKey,
     queryFn: async () => {
       if (!orgId) return [];
 
       const { data, error } = await supabase
         .from("appointments")
-        .select(
-          `id, title, technician_id, bay_id, status, starts_at, ends_at, notes, priority,
-           customers:customers(first_name,last_name),
-           vehicles:vehicles(make, model, license_plate)`
-        )
+        .select(selectColumns)
         .eq("org_id", orgId)
         .gte("starts_at", range.start)
         .lt("starts_at", range.end)
@@ -134,40 +175,14 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         throw error;
       }
 
-      const appointments = (data ?? []).map((row) => {
-        const customer = (row as any).customers;
-        const vehicle = (row as any).vehicles;
-        const customerName = customer
-          ? `${customer.first_name ?? ""} ${customer.last_name ?? ""}`.trim() || null
-          : null;
-        const vehicleLabel = vehicle
-          ? [vehicle.make, vehicle.model, vehicle.license_plate]
-              .filter(Boolean)
-              .map((part: string) => part.trim())
-              .join(" ") || null
-          : null;
-
-        return {
-          id: row.id,
-          title: row.title,
-          technicianId: row.technician_id,
-          bayId: row.bay_id,
-          status: row.status as PlannerAppointment["status"],
-          startsAt: row.starts_at,
-          endsAt: row.ends_at,
-          notes: row.notes ?? null,
-          customerName,
-          vehicleLabel,
-          priority: row.priority ?? 0,
-        } satisfies PlannerAppointment;
-      });
+      const appointments = (data ?? []).map(mapRowToAppointment);
 
       return bayId ? appointments.filter((appt) => appt.bayId === bayId) : appointments;
     },
   });
 
   const invalidateAppointments = () => {
-    queryClient.invalidateQueries({ queryKey: ["planner", "appointments", orgId, dateKey, bayId ?? "all"] });
+    queryClient.invalidateQueries({ queryKey });
   };
 
   const moveMutation = useMutation<void, unknown, PlannerMovePayload>({
@@ -208,7 +223,164 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
     onSuccess: invalidateAppointments,
   });
 
-  const canSchedule = async ({ technicianId, bayId: targetBayId, startsAt, endsAt }: CanScheduleInput) => {
+  const createMutation = useMutation<PlannerAppointment, unknown, PlannerEditableFields>({
+    mutationFn: async (payload) => {
+      if (!orgId) {
+        throw new Error("Missing organisation context");
+      }
+
+      const { data, error } = await supabase
+        .from("appointments")
+        .insert({
+          org_id: orgId,
+          title: payload.title,
+          customer_id: payload.customerId,
+          vehicle_id: payload.vehicleId,
+          technician_id: payload.technicianId,
+          bay_id: payload.bayId,
+          status: payload.status,
+          starts_at: payload.startsAt,
+          ends_at: payload.endsAt,
+          notes: payload.notes,
+          priority: 0,
+          created_by: profile?.id ?? null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select(selectColumns)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return mapRowToAppointment(data);
+    },
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<PlannerAppointment[]>(queryKey) ?? [];
+      const temporaryId = `temp-${Date.now()}`;
+      const optimisticAppointment: PlannerAppointment = {
+        id: temporaryId,
+        title: payload.title,
+        technicianId: payload.technicianId,
+        bayId: payload.bayId,
+        status: payload.status,
+        startsAt: payload.startsAt,
+        endsAt: payload.endsAt,
+        notes: payload.notes,
+        customerId: payload.customerId,
+        customerName: payload.customerName,
+        vehicleId: payload.vehicleId,
+        vehicleLabel: payload.vehicleLabel,
+        priority: 0,
+      };
+
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
+        if (bayId && optimisticAppointment.bayId !== bayId) {
+          return current;
+        }
+        return sortAppointments([...current, optimisticAppointment]);
+      });
+
+      return { previous, temporaryId };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (data, _payload, context) => {
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
+        const withoutTemp = current.filter((item) => item.id !== context?.temporaryId);
+        if (bayId && data.bayId !== bayId) {
+          return withoutTemp;
+        }
+        return sortAppointments([...withoutTemp, data]);
+      });
+    },
+    onSettled: invalidateAppointments,
+  });
+
+  const updateMutation = useMutation<PlannerAppointment, unknown, PlannerUpdatePayload>({
+    mutationFn: async (payload) => {
+      const { error, data } = await supabase
+        .from("appointments")
+        .update({
+          title: payload.title,
+          customer_id: payload.customerId,
+          vehicle_id: payload.vehicleId,
+          technician_id: payload.technicianId,
+          bay_id: payload.bayId,
+          status: payload.status,
+          starts_at: payload.startsAt,
+          ends_at: payload.endsAt,
+          notes: payload.notes,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", payload.id)
+        .select(selectColumns)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return mapRowToAppointment(data);
+    },
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<PlannerAppointment[]>(queryKey) ?? [];
+      const optimisticAppointment: PlannerAppointment = {
+        id: payload.id,
+        title: payload.title,
+        technicianId: payload.technicianId,
+        bayId: payload.bayId,
+        status: payload.status,
+        startsAt: payload.startsAt,
+        endsAt: payload.endsAt,
+        notes: payload.notes,
+        customerId: payload.customerId,
+        customerName: payload.customerName,
+        vehicleId: payload.vehicleId,
+        vehicleLabel: payload.vehicleLabel,
+        priority: 0,
+      };
+
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
+        const remaining = current.filter((item) => item.id !== payload.id);
+        if (bayId && optimisticAppointment.bayId !== bayId) {
+          return remaining;
+        }
+        return sortAppointments([...remaining, optimisticAppointment]);
+      });
+
+      return { previous };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
+        const remaining = current.filter((item) => item.id !== data.id);
+        if (bayId && data.bayId !== bayId) {
+          return remaining;
+        }
+        return sortAppointments([...remaining, data]);
+      });
+    },
+    onSettled: invalidateAppointments,
+  });
+
+  const canSchedule = async ({
+    technicianId,
+    bayId: targetBayId,
+    startsAt,
+    endsAt,
+    appointmentId,
+  }: CanScheduleInput) => {
     if (!orgId) return true;
     const { data, error } = await supabase.rpc("can_schedule", {
       _org: orgId,
@@ -216,6 +388,7 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       _bay: targetBayId,
       _start: startsAt,
       _end: endsAt,
+      _appointment: appointmentId ?? null,
     });
 
     if (error) {
@@ -243,8 +416,26 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         throw new Error(mapErrorToFriendlyMessage(error));
       }
     },
+    createAppointment: async (payload: PlannerEditableFields) => {
+      try {
+        await createMutation.mutateAsync(payload);
+      } catch (error) {
+        throw new Error(mapErrorToFriendlyMessage(error));
+      }
+    },
+    updateAppointment: async (payload: PlannerUpdatePayload) => {
+      try {
+        await updateMutation.mutateAsync(payload);
+      } catch (error) {
+        throw new Error(mapErrorToFriendlyMessage(error));
+      }
+    },
     canSchedule,
     refetch: query.refetch,
-    isMutating: moveMutation.isPending || resizeMutation.isPending,
+    isMutating:
+      moveMutation.isPending ||
+      resizeMutation.isPending ||
+      createMutation.isPending ||
+      updateMutation.isPending,
   };
 };
