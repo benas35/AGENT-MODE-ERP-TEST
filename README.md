@@ -287,6 +287,12 @@ const { data } = await supabase
 - Media upload flows enqueue progress via the shared queue; see `VehicleMediaUploader` and `WorkOrderPhotoSection` for wiring success indicators to queue state.
 - Empty states and illustrations live in `app/src/assets/empties`; import the SVGs to keep gallery, timeline, and inbox blanks consistent and include a CTA button.
 
+### Phase 3 / Part A
+
+- Apply the planner schema and helper function with `npx supabase db push --file backend/sql/030-planner.sql` (seeds included for demo org data).
+- Demo technicians, bays, and appointments seed against the ProFix organization and use Europe/Vilnius local time converted to stored UTC.
+- Keep planner timestamps in UTC in the database while formatting in Europe/Vilnius on the frontend.
+
 ## Contributing
 
 1. Fork the repository
