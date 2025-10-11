@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -10,23 +10,17 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Upload, ImagePlus, Info } from "lucide-react";
+import { useUploadQueue, UploadQueueItem } from "@/features/uploads/useUploadQueue";
+import { Upload, ImagePlus, Info, RotateCcw, X } from "lucide-react";
 import { VehicleMediaKind } from "@/hooks/useVehicleMedia";
+import { SuccessCheck } from "@/components/feedback/SuccessCheck";
 
 interface VehicleMediaUploaderProps {
   vehicleId: string;
   defaultKind?: VehicleMediaKind;
 }
 
-type UploadStatus = "queued" | "uploading" | "success" | "error";
-
-interface UploadItem {
-  id: string;
-  fileName: string;
-  size: number;
-  progress: number;
-  status: UploadStatus;
-  error?: string;
+interface VehicleUploadMeta {
   kind: VehicleMediaKind;
 }
 
@@ -38,6 +32,13 @@ const mediaKindOptions: { value: VehicleMediaKind; label: string; helper: string
   { value: "damage", label: "Damage", helper: "Damage documentation" },
 ];
 
+const statusLabel: Record<UploadQueueItem<File, VehicleUploadMeta>["status"], string> = {
+  queued: "Queued",
+  uploading: "Uploading",
+  success: "Processed",
+  error: "Failed",
+};
+
 export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
   vehicleId,
   defaultKind = "front",
@@ -48,66 +49,117 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedKind, setSelectedKind] = useState<VehicleMediaKind>(defaultKind);
-  const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const lastSucceeded = useRef(new Set<string>());
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const updateUpload = useCallback((id: string, updater: Partial<UploadItem>) => {
-    setUploads((previous) =>
-      previous.map((item) => (item.id === id ? { ...item, ...updater } : item)),
-    );
-  }, []);
+  const { items: uploads, enqueue, cancel, retry, remove } = useUploadQueue<File, VehicleUploadMeta, { record?: { id: string } }>(
+    {
+      context: "uploading vehicle media",
+      uploadFn: async ({ item, signal, updateProgress }) => {
+        const file = item.payload;
+        const kind = item.meta?.kind ?? selectedKind;
 
-  const addUploads = useCallback((items: UploadItem[]) => {
-    setUploads((previous) => [...items, ...previous]);
-  }, []);
+        if (!profile?.org_id) {
+          throw new Error("Organization context is missing for this user");
+        }
 
-  const removeUpload = useCallback((id: string) => {
-    setUploads((previous) => previous.filter((item) => item.id !== id));
-  }, []);
+        if (!vehicleId) {
+          throw new Error("Vehicle context is required to upload media");
+        }
 
-  const uploadMutation = useMutation({
-    mutationFn: async ({ file, uploadId, kind }: { file: File; uploadId: string; kind: VehicleMediaKind }) => {
-      if (!profile?.org_id) {
-        throw new Error("Organization context is missing for this user");
+        if (signal.aborted) {
+          const error = new Error("Upload cancelled");
+          error.name = "AbortError";
+          throw error;
+        }
+
+        updateProgress(10);
+
+        const formData = new FormData();
+        formData.append("vehicleId", vehicleId);
+        formData.append("orgId", profile.org_id);
+        formData.append("kind", kind);
+        formData.append("file", file);
+        formData.append("fileName", file.name);
+
+        updateProgress(35);
+
+        const { data, error } = await supabase.functions.invoke("media-process", {
+          body: formData,
+        });
+
+        if (signal.aborted) {
+          const abortError = new Error("Upload cancelled");
+          abortError.name = "AbortError";
+          throw abortError;
+        }
+
+        if (error) {
+          throw new Error(error.message ?? "Failed to upload media");
+        }
+
+        updateProgress(95);
+
+        return data as { record?: { id: string } } | null;
+      },
+      onSuccess: async (item) => {
+        if (vehicleId) {
+          await queryClient.invalidateQueries({ queryKey: ["vehicle-media", vehicleId] });
+        }
+
+        toast({
+          title: "Upload complete",
+          description: `${item.fileName} has been processed successfully`,
+        });
+      },
+      onError: (_item, friendly) => {
+        toast({
+          title: friendly.title,
+          description: friendly.description,
+          variant: "destructive",
+        });
+      },
+    },
+  );
+
+  useEffect(() => {
+    uploads.forEach((item) => {
+      if (item.status === "success" && !lastSucceeded.current.has(item.id)) {
+        lastSucceeded.current.add(item.id);
+        setSuccessMessage(`${item.fileName} uploaded`);
+      }
+    });
+  }, [uploads]);
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    uploads.forEach((item) => {
+      if (item.status === "success") {
+        timers.push(
+          setTimeout(() => {
+            remove(item.id);
+          }, 2400),
+        );
       }
 
-      updateUpload(uploadId, { status: "uploading", progress: 25, error: undefined });
-
-      const formData = new FormData();
-      formData.append("vehicleId", vehicleId);
-      formData.append("orgId", profile.org_id);
-      formData.append("kind", kind);
-      formData.append("file", file);
-      formData.append("fileName", file.name);
-
-      const { data, error } = await supabase.functions.invoke("media-process", {
-        body: formData,
-      });
-
-      if (error) {
-        throw new Error(error.message ?? "Failed to upload media");
+      if (item.status === "error") {
+        timers.push(
+          setTimeout(() => {
+            remove(item.id);
+          }, 10000),
+        );
       }
+    });
 
-      return data as { record?: { id: string } } | null;
-    },
-    onSuccess: async (_data, variables) => {
-      updateUpload(variables.uploadId, { status: "success", progress: 100 });
-      await queryClient.invalidateQueries({ queryKey: ["vehicle-media", vehicleId] });
-      toast({
-        title: "Upload complete",
-        description: `${variables.file.name} has been processed successfully`,
-      });
-      setTimeout(() => removeUpload(variables.uploadId), 2200);
-    },
-    onError: (error: Error, variables) => {
-      updateUpload(variables.uploadId, { status: "error", error: error.message, progress: 0 });
-      toast({
-        title: "Upload failed",
-        description: error.message,
-        variant: "destructive",
-      });
-      setTimeout(() => removeUpload(variables.uploadId), 8000);
-    },
-  });
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+    };
+  }, [uploads, remove]);
+
+  const updateKind = useCallback((value: VehicleMediaKind) => {
+    setSelectedKind(value);
+  }, []);
 
   const handleFiles = useCallback(
     (incoming: FileList | File[]) => {
@@ -122,24 +174,16 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
         return;
       }
 
-      const newUploads = files.map<UploadItem>((file) => ({
-        id: crypto.randomUUID(),
-        fileName: file.name,
-        size: file.size,
-        progress: 0,
-        status: "queued",
-        kind: selectedKind,
-      }));
-
-      addUploads(newUploads);
-
-      newUploads.forEach((item, index) => {
-        setTimeout(() => {
-          uploadMutation.mutate({ file: files[index], uploadId: item.id, kind: item.kind });
-        }, index * 80);
-      });
+      enqueue(
+        files.map((file) => ({
+          fileName: file.name,
+          size: file.size,
+          payload: file,
+          meta: { kind: selectedKind },
+        })),
+      );
     },
-    [addUploads, selectedKind, toast, uploadMutation],
+    [enqueue, selectedKind, toast],
   );
 
   const onDrop = useCallback(
@@ -187,13 +231,20 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
             Private bucket • Optimised via edge
           </Badge>
         </div>
+        {successMessage && (
+          <SuccessCheck
+            message={successMessage}
+            className="mt-2"
+            onDone={() => setSuccessMessage(null)}
+          />
+        )}
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <Info className="h-4 w-4" />
             Drag & drop up to 20 images at a time. Supported formats: JPEG, PNG, HEIC, WebP.
           </div>
           <div className="flex items-center gap-2">
-            <Select value={selectedKind} onValueChange={(value: VehicleMediaKind) => setSelectedKind(value)}>
+            <Select value={selectedKind} onValueChange={updateKind}>
               <SelectTrigger className="w-[220px]">
                 <SelectValue placeholder="Select photo type" />
               </SelectTrigger>
@@ -208,7 +259,13 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="secondary" size="sm" onClick={handleBrowseClick} disabled={!vehicleId}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleBrowseClick}
+              disabled={!vehicleId}
+              data-vehicle-media-upload-trigger
+            >
               <Upload className="mr-2 h-4 w-4" />
               Browse
             </Button>
@@ -244,7 +301,7 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
         </div>
 
         {uploads.length > 0 && (
-          <ScrollArea className="mt-4 max-h-48">
+          <ScrollArea className="mt-4 max-h-48" role="region" aria-live="polite">
             <div className="space-y-3 pr-2">
               {uploads.map((item) => (
                 <div
@@ -255,9 +312,10 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
                     <div>
                       <p className="text-sm font-medium text-foreground">{item.fileName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {mediaKindOptions.find((option) => option.value === item.kind)?.label ?? item.kind}
+                        {mediaKindOptions.find((option) => option.value === (item.meta?.kind ?? selectedKind))?.label ??
+                          item.meta?.kind ?? "Unknown"}
                         {" • "}
-                        {(item.size / 1024 / 1024).toFixed(2)} MB
+                        {item.size ? (item.size / 1024 / 1024).toFixed(2) : "--"} MB
                       </p>
                     </div>
                     <Badge
@@ -269,16 +327,35 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
                             : "outline"
                       }
                     >
-                      {item.status === "queued" && "Queued"}
-                      {item.status === "uploading" && "Uploading"}
-                      {item.status === "success" && "Processed"}
-                      {item.status === "error" && "Failed"}
+                      {statusLabel[item.status]}
                     </Badge>
                   </div>
                   <Progress value={item.progress} className="mt-3 h-2" />
-                  {item.error && (
-                    <p className="mt-2 text-xs text-destructive">{item.error}</p>
-                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    {item.error && <span className="text-destructive">{item.error}</span>}
+                    <div className="ml-auto flex items-center gap-2">
+                      {item.status === "uploading" && (
+                        <Button variant="ghost" size="xs" onClick={() => cancel(item.id)}>
+                          <X className="mr-1 h-3 w-3" /> Cancel
+                        </Button>
+                      )}
+                      {item.status === "queued" && (
+                        <Button variant="ghost" size="xs" onClick={() => cancel(item.id)}>
+                          <X className="mr-1 h-3 w-3" /> Remove
+                        </Button>
+                      )}
+                      {item.status === "error" && (
+                        <>
+                          <Button variant="secondary" size="xs" onClick={() => retry(item.id)}>
+                            <RotateCcw className="mr-1 h-3 w-3" /> Retry
+                          </Button>
+                          <Button variant="ghost" size="xs" onClick={() => remove(item.id)}>
+                            <X className="mr-1 h-3 w-3" /> Dismiss
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

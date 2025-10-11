@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { createRouteErrorBoundary } from "@/app/ErrorBoundary";
 import { PortalSessionProvider } from "@/features/customer-portal/context/PortalSessionContext";
 import { PortalLoginPage } from "@/features/customer-portal/pages/PortalLoginPage";
 import { PortalVerifyPage } from "@/features/customer-portal/pages/PortalVerifyPage";
@@ -16,3 +17,5 @@ const PortalRoutes = () => (
 );
 
 export default PortalRoutes;
+
+export const ErrorBoundary = createRouteErrorBoundary("Customer portal");

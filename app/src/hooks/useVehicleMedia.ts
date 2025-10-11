@@ -2,6 +2,15 @@ import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import {
+  createUndoDeferred,
+  isUndoError,
+  registerUndo,
+  type UndoDeferred,
+  type UndoHandle,
+  UndoCancelledError,
+} from "@/lib/undo";
+import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
 
 export type VehicleMediaKind = "hero" | "front" | "rear" | "interior" | "damage";
 
@@ -19,6 +28,21 @@ export interface VehicleMediaItem {
 }
 
 const queryKey = (vehicleId?: string) => ["vehicle-media", vehicleId];
+
+type MutationContext = {
+  previous?: VehicleMediaItem[];
+  undoHandle?: UndoHandle;
+};
+
+interface ReorderVariables {
+  items: VehicleMediaItem[];
+  deferred: UndoDeferred;
+}
+
+interface DeleteVariables {
+  item: VehicleMediaItem;
+  deferred: UndoDeferred;
+}
 
 export const useVehicleMedia = (vehicleId?: string) => {
   const queryClient = useQueryClient();
@@ -78,8 +102,17 @@ export const useVehicleMedia = (vehicleId?: string) => {
     return queryClient.invalidateQueries({ queryKey: queryKey(vehicleId) });
   }, [queryClient, vehicleId]);
 
-  const reorderMutation = useMutation({
-    mutationFn: async (items: VehicleMediaItem[]) => {
+  const reorderMutation = useMutation<void, unknown, ReorderVariables, MutationContext>({
+    mutationFn: async ({ items, deferred }) => {
+      try {
+        await deferred.promise;
+      } catch (error) {
+        if (isUndoError(error)) {
+          throw error;
+        }
+        throw error;
+      }
+
       const updates = items.map((item, index) => ({
         id: item.id,
         sort_order: index,
@@ -91,29 +124,65 @@ export const useVehicleMedia = (vehicleId?: string) => {
 
       if (error) throw error;
     },
-    onMutate: async (nextOrder) => {
+    onMutate: async ({ items, deferred }) => {
+      await queryClient.cancelQueries({ queryKey: queryKey(vehicleId) });
       const previous = queryClient.getQueryData<VehicleMediaItem[]>(queryKey(vehicleId));
-      queryClient.setQueryData(queryKey(vehicleId), nextOrder);
-      return { previous };
+      queryClient.setQueryData(queryKey(vehicleId), items);
+
+      const undoHandle = registerUndo({
+        label: "Media order updated",
+        description: "Undo within 5 seconds to restore the previous order.",
+        ttlMs: 5000,
+        do: () => {
+          deferred.resolve();
+        },
+        undo: async () => {
+          deferred.reject(new UndoCancelledError());
+          if (previous) {
+            queryClient.setQueryData(queryKey(vehicleId), previous);
+          }
+        },
+      });
+
+      return { previous, undoHandle };
     },
     onError: (error, _variables, context) => {
+      context?.undoHandle?.dispose();
+
+      if (isUndoError(error)) {
+        return;
+      }
+
       if (context?.previous) {
         queryClient.setQueryData(queryKey(vehicleId), context.previous);
       }
+
+      const friendly = mapErrorToFriendlyMessage(error, "saving the media order");
       toast({
-        title: "Unable to reorder media",
-        description: error.message,
+        title: friendly.title,
+        description: friendly.description,
         variant: "destructive",
       });
     },
-    onSuccess: () => {
-      toast({ title: "Media order updated" });
+    onSettled: async (_data, error, _variables, context) => {
+      context?.undoHandle?.dispose();
+      if (!error || !isUndoError(error)) {
+        await invalidate();
+      }
     },
-    onSettled: invalidate,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (item: VehicleMediaItem) => {
+  const deleteMutation = useMutation<void, unknown, DeleteVariables, MutationContext>({
+    mutationFn: async ({ item, deferred }) => {
+      try {
+        await deferred.promise;
+      } catch (error) {
+        if (isUndoError(error)) {
+          throw error;
+        }
+        throw error;
+      }
+
       const { error: dbError } = await supabase
         .from("vehicle_media")
         .delete()
@@ -127,27 +196,54 @@ export const useVehicleMedia = (vehicleId?: string) => {
 
       if (storageError) throw storageError;
     },
-    onMutate: async (item) => {
+    onMutate: async ({ item, deferred }) => {
+      await queryClient.cancelQueries({ queryKey: queryKey(vehicleId) });
       const previous = queryClient.getQueryData<VehicleMediaItem[]>(queryKey(vehicleId));
       queryClient.setQueryData<VehicleMediaItem[]>(queryKey(vehicleId), (old = []) =>
         old.filter((media) => media.id !== item.id),
       );
-      return { previous };
+
+      const undoHandle = registerUndo({
+        label: "Photo deleted",
+        description: "Undo within 5 seconds to keep this photo.",
+        ttlMs: 5000,
+        do: () => {
+          deferred.resolve();
+        },
+        undo: async () => {
+          deferred.reject(new UndoCancelledError());
+          if (previous) {
+            queryClient.setQueryData(queryKey(vehicleId), previous);
+          }
+        },
+      });
+
+      return { previous, undoHandle };
     },
-    onError: (error, _item, context) => {
+    onError: (error, _variables, context) => {
+      context?.undoHandle?.dispose();
+
+      if (isUndoError(error)) {
+        return;
+      }
+
       if (context?.previous) {
         queryClient.setQueryData(queryKey(vehicleId), context.previous);
       }
+
+      const friendly = mapErrorToFriendlyMessage(error, "deleting the photo");
       toast({
-        title: "Failed to delete photo",
-        description: error.message,
+        title: friendly.title,
+        description: friendly.description,
         variant: "destructive",
       });
     },
-    onSuccess: () => {
-      toast({ title: "Photo deleted" });
+    onSettled: async (_data, error, _variables, context) => {
+      context?.undoHandle?.dispose();
+      if (!error || !isUndoError(error)) {
+        await invalidate();
+      }
     },
-    onSettled: invalidate,
   });
 
   const setHeroMutation = useMutation({
@@ -229,12 +325,30 @@ export const useVehicleMedia = (vehicleId?: string) => {
     onSettled: invalidate,
   });
 
+  const reorderMedia = useCallback(
+    async (items: VehicleMediaItem[]) => {
+      const deferred = createUndoDeferred();
+      deferred.promise.catch(() => undefined);
+      reorderMutation.mutate({ items, deferred });
+    },
+    [reorderMutation],
+  );
+
+  const deleteMedia = useCallback(
+    async (item: VehicleMediaItem) => {
+      const deferred = createUndoDeferred();
+      deferred.promise.catch(() => undefined);
+      deleteMutation.mutate({ item, deferred });
+    },
+    [deleteMutation],
+  );
+
   return {
     media: mediaQuery.data ?? [],
     isLoading: mediaQuery.isLoading,
     error: mediaQuery.error,
-    reorderMedia: reorderMutation.mutateAsync,
-    deleteMedia: deleteMutation.mutateAsync,
+    reorderMedia,
+    deleteMedia,
     setHero: setHeroMutation.mutateAsync,
     updateCaption: updateCaptionMutation.mutateAsync,
     isReordering: reorderMutation.isPending,

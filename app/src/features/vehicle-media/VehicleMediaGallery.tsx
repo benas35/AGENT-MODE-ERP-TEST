@@ -6,7 +6,6 @@ import {
   DropResult,
 } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +18,16 @@ import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConfirmationDialog } from "@/components/shared/ConfirmationDialog";
 import { VehicleMediaItem, useVehicleMedia } from "@/hooks/useVehicleMedia";
+import { MediaGridSkeleton } from "@/components/skeletons/MediaGridSkeleton";
 import { cn } from "@/lib/utils";
 import { Camera, GripVertical, MoreHorizontal, Star } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useForm } from "react-hook-form";
+import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
+import { safeSubmit, schemaResolver } from "@/lib/validation";
+import { mediaCaptionSchema, type MediaCaptionFormValues } from "@/features/vehicle-media/captionSchema";
+import mediaEmpty from "@/assets/empties/media.svg";
 
 interface VehicleMediaGalleryProps {
   vehicleId: string;
@@ -33,6 +40,73 @@ const kindLabels: Record<string, string> = {
   rear: "Rear",
   interior: "Interior",
   damage: "Damage",
+};
+
+const MediaCaptionForm = ({
+  item,
+  onSave,
+  isSubmitting,
+}: {
+  item: VehicleMediaItem;
+  onSave: (value: string) => Promise<void>;
+  isSubmitting: boolean;
+}) => {
+  const form = useForm<MediaCaptionFormValues>({
+    resolver: schemaResolver(mediaCaptionSchema),
+    defaultValues: { caption: item.caption ?? "" },
+    mode: "onChange",
+  });
+
+  useEffect(() => {
+    form.reset({ caption: item.caption ?? "" });
+  }, [item.caption, form]);
+
+  const handleSubmit = form.handleSubmit(
+    safeSubmit(async (values) => {
+      await onSave(values.caption);
+      form.reset({ caption: values.caption });
+    }, {
+      onError: (error) => {
+        const friendly = mapErrorToFriendlyMessage(error, "saving the caption");
+        form.setError("caption", { type: "manual", message: friendly.description });
+      },
+    }),
+  );
+
+  const watchedCaption = form.watch("caption");
+  const characterCount = watchedCaption?.length ?? 0;
+
+  return (
+    <Form {...form}>
+      <form onSubmit={handleSubmit} className="space-y-2">
+        <FormField
+          control={form.control}
+          name="caption"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs font-medium text-muted-foreground">Caption</FormLabel>
+              <FormControl>
+                <Textarea
+                  {...field}
+                  rows={2}
+                  disabled={isSubmitting || form.formState.isSubmitting}
+                  placeholder="Add customer-facing notes"
+                  onBlur={() => {
+                    field.onBlur();
+                    void handleSubmit();
+                  }}
+                />
+              </FormControl>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <FormMessage />
+                <span>{characterCount}/140</span>
+              </div>
+            </FormItem>
+          )}
+        />
+      </form>
+    </Form>
+  );
 };
 
 export const VehicleMediaGallery: React.FC<VehicleMediaGalleryProps> = ({ vehicleId, className }) => {
@@ -48,17 +122,7 @@ export const VehicleMediaGallery: React.FC<VehicleMediaGalleryProps> = ({ vehicl
     isSettingHero,
     isUpdatingCaption,
   } = useVehicleMedia(vehicleId);
-  const [captionDrafts, setCaptionDrafts] = useState<Record<string, string>>({});
   const [pendingDelete, setPendingDelete] = useState<VehicleMediaItem | null>(null);
-
-  useEffect(() => {
-    setCaptionDrafts(
-      media.reduce<Record<string, string>>((acc, item) => {
-        acc[item.id] = item.caption ?? "";
-        return acc;
-      }, {}),
-    );
-  }, [media]);
 
   const heroItem = useMemo(() => media.find((item) => item.kind === "hero"), [media]);
 
@@ -73,39 +137,38 @@ export const VehicleMediaGallery: React.FC<VehicleMediaGalleryProps> = ({ vehicl
     await reorderMedia(reordered);
   };
 
-  const handleCaptionBlur = async (item: VehicleMediaItem) => {
-    const draft = captionDrafts[item.id];
-    if (draft === item.caption) return;
-    await updateCaption({ id: item.id, caption: draft });
+  const handleCaptionSave = async (item: VehicleMediaItem, caption: string) => {
+    const normalized = caption.trim();
+    const payload = normalized.length ? normalized : null;
+    if ((item.caption ?? null) === payload) return;
+    await updateCaption({ id: item.id, caption: payload });
+  };
+
+  const focusUploader = () => {
+    if (typeof document === "undefined") return;
+    const trigger = document.querySelector<HTMLElement>("[data-vehicle-media-upload-trigger]");
+    trigger?.focus({ preventScroll: false });
+    trigger?.click();
   };
 
   const galleryContent = () => {
     if (isLoading) {
-      return (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <Card key={index} className="overflow-hidden">
-              <Skeleton className="aspect-video w-full" />
-              <CardContent className="space-y-2 p-4">
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-3 w-3/4" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      );
+      return <MediaGridSkeleton rows={2} cols={3} />;
     }
 
     if (!media.length) {
       return (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 p-10 text-center">
-          <Camera className="h-10 w-10 text-muted-foreground" />
-          <div>
-            <p className="text-base font-medium text-foreground">No vehicle media yet</p>
+        <div className="flex flex-col items-center justify-center gap-6 rounded-lg border border-dashed border-muted-foreground/40 bg-muted/20 p-10 text-center">
+          <img src={mediaEmpty} alt="" aria-hidden="true" className="h-32 w-auto" />
+          <div className="space-y-2">
+            <p className="text-base font-semibold text-foreground">No vehicle media yet</p>
             <p className="text-sm text-muted-foreground">
-              Upload inspection photos to highlight vehicle condition, customer approvals, and damage documentation.
+              Upload inspection photos to highlight condition, customer approvals, and damage documentation for this vehicle.
             </p>
           </div>
+          <Button type="button" size="sm" onClick={focusUploader}>
+            <Camera className="mr-2 h-4 w-4" /> Upload photo
+          </Button>
         </div>
       );
     }
@@ -189,20 +252,11 @@ export const VehicleMediaGallery: React.FC<VehicleMediaGalleryProps> = ({ vehicl
                             </Badge>
                           )}
                         </div>
-                        <label className="space-y-2 text-sm">
-                          <span className="text-xs font-medium text-muted-foreground">Caption</span>
-                          <textarea
-                            value={captionDrafts[item.id] ?? ""}
-                            onChange={(event) =>
-                              setCaptionDrafts((prev) => ({ ...prev, [item.id]: event.target.value }))
-                            }
-                            onBlur={() => handleCaptionBlur(item)}
-                            rows={2}
-                            className="w-full resize-none rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm shadow-inner focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                            placeholder="Add customer-facing notes"
-                            disabled={isUpdatingCaption}
-                          />
-                        </label>
+                        <MediaCaptionForm
+                          item={item}
+                          onSave={async (value) => handleCaptionSave(item, value)}
+                          isSubmitting={isUpdatingCaption}
+                        />
                       </div>
                     </div>
                   )}
@@ -241,6 +295,7 @@ export const VehicleMediaGallery: React.FC<VehicleMediaGalleryProps> = ({ vehicl
         confirmText="Delete photo"
         variant="destructive"
         loading={isDeleting}
+        preferenceKey="vehicle-media.delete"
         onConfirm={async () => {
           if (!pendingDelete) return;
           await deleteMedia(pendingDelete);

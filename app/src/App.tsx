@@ -1,7 +1,8 @@
+import type { ReactElement } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -25,8 +26,12 @@ import TireStorage from "./pages/TireStorage";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import PortalRoutes from "./pages/portal";
+import { RouteBoundary } from "./app/ErrorBoundary";
+import { queryClient } from "./lib/queryClient";
 
-const queryClient = new QueryClient();
+const RouteWithBoundary = ({ children, name }: { children: ReactElement; name: string }) => (
+  <RouteBoundary name={name}>{children}</RouteBoundary>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -37,7 +42,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/auth" element={<Auth />} />
-            <Route path="/portal/*" element={<PortalRoutes />} />
+            <Route path="/portal/*" element={<RouteWithBoundary name="Customer portal"><PortalRoutes /></RouteWithBoundary>} />
             <Route
               path="/*"
               element={
@@ -46,8 +51,8 @@ const App = () => (
                     <Routes>
                       <Route path="/" element={<Dashboard />} />
                       <Route path="/customers" element={<Customers />} />
-                      <Route path="/vehicles" element={<Vehicles />} />
-                      <Route path="/work-orders" element={<WorkOrders />} />
+                      <Route path="/vehicles" element={<RouteWithBoundary name="Vehicles"><Vehicles /></RouteWithBoundary>} />
+                      <Route path="/work-orders" element={<RouteWithBoundary name="Work orders"><WorkOrders /></RouteWithBoundary>} />
                       <Route path="/inventory" element={<Inventory />} />
                       <Route path="/parts" element={<Parts />} />
                       <Route path="/purchase-orders" element={<PurchaseOrders />} />
