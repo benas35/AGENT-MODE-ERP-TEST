@@ -305,6 +305,12 @@ const { data } = await supabase
 - React Query optimistic flows for create/update live in `usePlannerAppointments`; call `createAppointment`/`updateAppointment` after `canSchedule` to keep caches warm while Supabase persists changes.
 - Form date inputs expect Europe/Vilnius local strings (`datetime-local` with 15-minute steps) and convert back to UTC via `zonedTimeToUtc` before saving.
 
+### Phase 3 / Part D
+
+- Status labels and colours are centralised in `app/src/features/planner/types.ts`, with `AppointmentCard` exposing quick-action buttons and a context menu that call into the shared helpers.
+- Trigger status transitions with `usePlannerAppointments().updateStatus(id, status)`; `PlannerBoard` pipes this into cards and temporarily disables actions while a mutation is pending.
+- Live status changes fan out through the Supabase realtime channel initialised inside `usePlannerAppointments`, ensuring every client reflects updates instantly.
+
 ## Contributing
 
 1. Fork the repository

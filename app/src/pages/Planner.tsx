@@ -136,6 +136,8 @@ const Planner = () => {
           onSlotCreate={({ technicianId, bayId, startsAt, endsAt }) =>
             setDrawerState({ mode: "create", technicianId, bayId, startsAt, endsAt })
           }
+          onStatusChange={({ id, status }) => appointmentsQuery.updateStatus(id, status)}
+          disableStatusActions={appointmentsQuery.isStatusMutating}
           canSchedule={appointmentsQuery.canSchedule}
         />
       </div>

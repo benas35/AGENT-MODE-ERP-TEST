@@ -1,5 +1,19 @@
 export type PlannerStatus = "scheduled" | "in_progress" | "waiting_parts" | "completed";
 
+export const PLANNER_STATUSES: PlannerStatus[] = [
+  "scheduled",
+  "in_progress",
+  "waiting_parts",
+  "completed",
+];
+
+export const PLANNER_STATUS_LABELS: Record<PlannerStatus, string> = {
+  scheduled: "Scheduled",
+  in_progress: "In progress",
+  waiting_parts: "Waiting for parts",
+  completed: "Completed",
+};
+
 export interface PlannerTechnician {
   id: string;
   name: string;

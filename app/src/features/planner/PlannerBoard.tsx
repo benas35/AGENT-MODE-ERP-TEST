@@ -17,6 +17,7 @@ import {
   type PlannerAppointment,
   type PlannerMovePayload,
   type PlannerResizePayload,
+  type PlannerStatus,
   type PlannerTechnician,
   DEFAULT_APPOINTMENT_MINUTES,
   MIN_SLOT_MINUTES,
@@ -39,6 +40,8 @@ interface PlannerBoardProps {
     startsAt: string;
     endsAt: string;
   }) => void;
+  onStatusChange: (payload: { id: string; status: PlannerStatus }) => Promise<void>;
+  disableStatusActions?: boolean;
   canSchedule: (input: CanScheduleInput) => Promise<boolean>;
 }
 
@@ -69,6 +72,8 @@ export const PlannerBoard = ({
   onAppointmentResize,
   onAppointmentClick,
   onSlotCreate,
+  onStatusChange,
+  disableStatusActions = false,
   canSchedule,
 }: PlannerBoardProps) => {
   const filteredAppointments = useMemo(
@@ -267,6 +272,23 @@ export const PlannerBoard = ({
       return rest;
     });
   }, []);
+
+  const handleStatusChange = useCallback(
+    async (id: string, status: PlannerStatus) => {
+      const current = derivedMap.get(id);
+      if (!current || current.status === status) {
+        return;
+      }
+
+      try {
+        await onStatusChange({ id, status });
+      } catch (error) {
+        const friendly = mapErrorToFriendlyMessage(error, "updating the status");
+        toast({ title: friendly.title, description: friendly.description, variant: "destructive" });
+      }
+    },
+    [derivedMap, onStatusChange]
+  );
 
   const handleDragEnd = useCallback(
     async (result: DropResult) => {
@@ -638,6 +660,8 @@ export const PlannerBoard = ({
                                   )
                                 }
                                 onOpen={onAppointmentClick ? () => onAppointmentClick(appointment.id) : undefined}
+                                onStatusChange={(status) => handleStatusChange(appointment.id, status)}
+                                disableStatusActions={disableStatusActions}
                                 dragHandleProps={dragProvided.dragHandleProps}
                                 draggableProps={dragProvided.draggableProps}
                                 innerRef={dragProvided.innerRef}

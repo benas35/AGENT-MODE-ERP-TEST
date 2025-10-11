@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { addDays, startOfDay } from "date-fns";
 import { formatInTimeZone, utcToZonedTime, zonedTimeToUtc } from "date-fns-tz";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import type {
   PlannerResizePayload,
   PlannerUpdatePayload,
   PlannerTechnician,
+  PlannerStatus,
 } from "./types";
 import { ORG_TIMEZONE } from "./types";
 
@@ -180,6 +181,27 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       return bayId ? appointments.filter((appt) => appt.bayId === bayId) : appointments;
     },
   });
+
+  useEffect(() => {
+    if (!orgId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`planner-appointments-${orgId}-${dateKey}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "appointments", filter: `org_id=eq.${orgId}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void channel.unsubscribe();
+    };
+  }, [dateKey, orgId, queryClient, queryKey]);
 
   const invalidateAppointments = () => {
     queryClient.invalidateQueries({ queryKey });
@@ -374,6 +396,51 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
     onSettled: invalidateAppointments,
   });
 
+  const statusMutation = useMutation<PlannerAppointment, unknown, { id: string; status: PlannerStatus }>({
+    mutationFn: async ({ id, status }) => {
+      const { data, error } = await supabase
+        .from("appointments")
+        .update({
+          status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select(selectColumns)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return mapRowToAppointment(data);
+    },
+    onMutate: async ({ id, status }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<PlannerAppointment[]>(queryKey) ?? [];
+
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        current.map((item) => (item.id === id ? { ...item, status } : item))
+      );
+
+      return { previous };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
+        const remaining = current.filter((item) => item.id !== data.id);
+        if (bayId && data.bayId !== bayId) {
+          return remaining;
+        }
+        return sortAppointments([...remaining, data]);
+      });
+    },
+    onSettled: invalidateAppointments,
+  });
+
   const canSchedule = async ({
     technicianId,
     bayId: targetBayId,
@@ -430,12 +497,25 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         throw new Error(mapErrorToFriendlyMessage(error));
       }
     },
+    updateStatus: async (id: string, status: PlannerStatus) => {
+      try {
+        await statusMutation.mutateAsync({ id, status });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw error;
+        }
+        const friendly = mapErrorToFriendlyMessage(error);
+        throw new Error(friendly.description);
+      }
+    },
     canSchedule,
     refetch: query.refetch,
     isMutating:
       moveMutation.isPending ||
       resizeMutation.isPending ||
       createMutation.isPending ||
-      updateMutation.isPending,
+      updateMutation.isPending ||
+      statusMutation.isPending,
+    isStatusMutating: statusMutation.isPending,
   };
 };
