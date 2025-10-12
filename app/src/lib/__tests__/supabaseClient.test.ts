@@ -8,6 +8,7 @@ import {
 
 const originalUrl = import.meta.env.VITE_SUPABASE_URL;
 const originalAnon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const originalLegacy = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 afterEach(() => {
   resetSupabaseClient();
@@ -17,6 +18,9 @@ afterEach(() => {
   }
   if (originalAnon) {
     vi.stubEnv("VITE_SUPABASE_ANON_KEY", originalAnon);
+  }
+  if (originalLegacy) {
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", originalLegacy);
   }
 });
 
@@ -31,6 +35,15 @@ describe("collectMissingSupabaseEnv", () => {
       VITE_SUPABASE_URL: "https://example.supabase.co",
       VITE_SUPABASE_ANON_KEY: "anon",
     } as any);
+    expect(missing).toEqual([]);
+  });
+
+  it("treats legacy publishable key as satisfying anon key", () => {
+    const missing = collectMissingSupabaseEnv({
+      VITE_SUPABASE_URL: "https://example.supabase.co",
+      VITE_SUPABASE_PUBLISHABLE_KEY: "legacy-key",
+    } as any);
+
     expect(missing).toEqual([]);
   });
 });
@@ -52,5 +65,14 @@ describe("ensureSupabaseClient", () => {
 
     expect(client).toBe(second);
     expect(typeof client).toBe("object");
+  });
+
+  it("uses legacy publishable key when anon key is missing", () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "legacy-key");
+
+    const client = ensureSupabaseClient();
+    expect(client).toBeDefined();
   });
 });

@@ -9,10 +9,35 @@ export const REQUIRED_SUPABASE_ENV_KEYS = [
 
 type RequiredSupabaseKey = (typeof REQUIRED_SUPABASE_ENV_KEYS)[number];
 
+const LEGACY_KEY_ALIASES: Record<RequiredSupabaseKey, string[]> = {
+  VITE_SUPABASE_URL: [],
+  VITE_SUPABASE_ANON_KEY: ["VITE_SUPABASE_PUBLISHABLE_KEY"],
+};
+
 type EnvShape = Record<string, string | undefined>;
 
 export function collectMissingSupabaseEnv(env: EnvShape = import.meta.env): RequiredSupabaseKey[] {
-  return REQUIRED_SUPABASE_ENV_KEYS.filter((key) => !env[key]);
+  return REQUIRED_SUPABASE_ENV_KEYS.filter((key) => {
+    if (env[key]) {
+      return false;
+    }
+
+    const aliases = LEGACY_KEY_ALIASES[key] ?? [];
+    return !aliases.some((alias) => env[alias]);
+  });
+}
+
+function resolveSupabaseUrl(env: EnvShape = import.meta.env) {
+  return env.VITE_SUPABASE_URL;
+}
+
+function resolveSupabaseAnonKey(env: EnvShape = import.meta.env) {
+  return (
+    env.VITE_SUPABASE_ANON_KEY ||
+    env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    env.SUPABASE_ANON_KEY ||
+    env.SUPABASE_PUBLIC_ANON_KEY
+  );
 }
 
 export class SupabaseConfigError extends Error {
@@ -33,9 +58,12 @@ export function ensureSupabaseClient(): SupabaseClient<Database> {
     throw new SupabaseConfigError(missing);
   }
 
+  const supabaseUrl = resolveSupabaseUrl();
+  const supabaseAnonKey = resolveSupabaseAnonKey();
+
   cachedClient = createClient<Database>(
-    import.meta.env.VITE_SUPABASE_URL!,
-    import.meta.env.VITE_SUPABASE_ANON_KEY!,
+    supabaseUrl!,
+    supabaseAnonKey!,
     {
       auth: {
         persistSession: true,

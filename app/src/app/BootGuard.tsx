@@ -28,7 +28,9 @@ export function BootGuard({ children }: BootGuardProps) {
             ))}
           </ul>
           <p className="mt-4 text-sm text-destructive/70">
-            Add them to your <code>.env.local</code> file ({REQUIRED_SUPABASE_ENV_KEYS.join(", ")}) and restart the dev server.
+            Add them to your <code>.env.local</code> file ({REQUIRED_SUPABASE_ENV_KEYS.join(", ")}). We also accept the legacy
+            key name <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> for backward compatibility. Restart the dev server after
+            updating the file.
           </p>
         </div>
       </div>
