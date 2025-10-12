@@ -243,135 +243,69 @@ export type Database = {
       }
       appointments: {
         Row: {
-          actual_end: string | null
-          actual_start: string | null
-          assigned_to: string | null
-          bay: string | null
-          created_at: string | null
-          created_by: string
-          customer_approved: boolean | null
-          customer_id: string
-          delay_reason: string | null
-          dependencies: Json | null
-          description: string | null
-          end_time: string
-          estimated_minutes: number | null
-          exdates: string[] | null
           id: string
-          location_id: string | null
-          notes: string | null
           org_id: string
-          parts_ready: boolean | null
-          planned_end: string | null
-          planned_start: string | null
-          priority: string | null
-          reminder_sent_at: string | null
-          rrule: string | null
-          service_advisor: string | null
-          sla_due_at: string | null
-          source: string | null
-          start_time: string
-          status: Database["public"]["Enums"]["appointment_status"] | null
-          technician_id: string | null
-          template_id: string | null
           title: string
-          type_id: string | null
-          updated_at: string | null
+          customer_id: string | null
           vehicle_id: string | null
-          work_order_id: string | null
-          work_zone_id: string | null
+          technician_id: string | null
+          bay_id: string | null
+          status: string
+          starts_at: string
+          ends_at: string
+          notes: string | null
+          priority: number | null
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
         }
         Insert: {
-          actual_end?: string | null
-          actual_start?: string | null
-          assigned_to?: string | null
-          bay?: string | null
-          created_at?: string | null
-          created_by: string
-          customer_approved?: boolean | null
-          customer_id: string
-          delay_reason?: string | null
-          dependencies?: Json | null
-          description?: string | null
-          end_time: string
-          estimated_minutes?: number | null
-          exdates?: string[] | null
           id?: string
-          location_id?: string | null
-          notes?: string | null
           org_id: string
-          parts_ready?: boolean | null
-          planned_end?: string | null
-          planned_start?: string | null
-          priority?: string | null
-          reminder_sent_at?: string | null
-          rrule?: string | null
-          service_advisor?: string | null
-          sla_due_at?: string | null
-          source?: string | null
-          start_time: string
-          status?: Database["public"]["Enums"]["appointment_status"] | null
-          technician_id?: string | null
-          template_id?: string | null
           title: string
-          type_id?: string | null
-          updated_at?: string | null
+          customer_id?: string | null
           vehicle_id?: string | null
-          work_order_id?: string | null
-          work_zone_id?: string | null
+          technician_id?: string | null
+          bay_id?: string | null
+          status?: string
+          starts_at: string
+          ends_at: string
+          notes?: string | null
+          priority?: number | null
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
         }
         Update: {
-          actual_end?: string | null
-          actual_start?: string | null
-          assigned_to?: string | null
-          bay?: string | null
-          created_at?: string | null
-          created_by?: string
-          customer_approved?: boolean | null
-          customer_id?: string
-          delay_reason?: string | null
-          dependencies?: Json | null
-          description?: string | null
-          end_time?: string
-          estimated_minutes?: number | null
-          exdates?: string[] | null
           id?: string
-          location_id?: string | null
-          notes?: string | null
           org_id?: string
-          parts_ready?: boolean | null
-          planned_end?: string | null
-          planned_start?: string | null
-          priority?: string | null
-          reminder_sent_at?: string | null
-          rrule?: string | null
-          service_advisor?: string | null
-          sla_due_at?: string | null
-          source?: string | null
-          start_time?: string
-          status?: Database["public"]["Enums"]["appointment_status"] | null
-          technician_id?: string | null
-          template_id?: string | null
           title?: string
-          type_id?: string | null
-          updated_at?: string | null
+          customer_id?: string | null
           vehicle_id?: string | null
-          work_order_id?: string | null
-          work_zone_id?: string | null
+          technician_id?: string | null
+          bay_id?: string | null
+          status?: string
+          starts_at?: string
+          ends_at?: string
+          notes?: string | null
+          priority?: number | null
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "appointments_bay_id_fkey"
+            columns: ["bay_id"]
+            isOneToOne: false
+            referencedRelation: "bays"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "appointments_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "appointments_location_id_fkey"
-            columns: ["location_id"]
-            isOneToOne: false
-            referencedRelation: "locations"
             referencedColumns: ["id"]
           },
           {
@@ -389,31 +323,10 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "appointments_template_id_fkey"
-            columns: ["template_id"]
-            isOneToOne: false
-            referencedRelation: "planner_templates"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "appointments_vehicle_id_fkey"
             columns: ["vehicle_id"]
             isOneToOne: false
             referencedRelation: "vehicles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "appointments_work_order_id_fkey"
-            columns: ["work_order_id"]
-            isOneToOne: false
-            referencedRelation: "work_orders"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "appointments_work_zone_id_fkey"
-            columns: ["work_zone_id"]
-            isOneToOne: false
-            referencedRelation: "work_zones"
             referencedColumns: ["id"]
           },
         ]
@@ -3657,52 +3570,30 @@ dvi_signatures
       }
       technicians: {
         Row: {
-          capacity_minutes: number | null
-          color: string | null
-          created_at: string | null
-          display_name: string
           id: string
-          is_active: boolean | null
-          location_id: string | null
           org_id: string
-          profile_id: string | null
+          user_id: string | null
           skills: string[] | null
-          updated_at: string | null
+          availability: Json | null
+          created_at: string | null
         }
         Insert: {
-          capacity_minutes?: number | null
-          color?: string | null
-          created_at?: string | null
-          display_name: string
           id?: string
-          is_active?: boolean | null
-          location_id?: string | null
           org_id: string
-          profile_id?: string | null
+          user_id?: string | null
           skills?: string[] | null
-          updated_at?: string | null
+          availability?: Json | null
+          created_at?: string | null
         }
         Update: {
-          capacity_minutes?: number | null
-          color?: string | null
-          created_at?: string | null
-          display_name?: string
           id?: string
-          is_active?: boolean | null
-          location_id?: string | null
           org_id?: string
-          profile_id?: string | null
+          user_id?: string | null
           skills?: string[] | null
-          updated_at?: string | null
+          availability?: Json | null
+          created_at?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "technicians_location_id_fkey"
-            columns: ["location_id"]
-            isOneToOne: false
-            referencedRelation: "locations"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "technicians_org_id_fkey"
             columns: ["org_id"]
@@ -3711,8 +3602,8 @@ dvi_signatures
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "technicians_profile_id_fkey"
-            columns: ["profile_id"]
+            foreignKeyName: "technicians_user_id_fkey"
+            columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
