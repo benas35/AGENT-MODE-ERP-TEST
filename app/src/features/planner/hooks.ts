@@ -16,6 +16,14 @@ import type {
   PlannerStatus,
 } from "./types";
 import { ORG_TIMEZONE } from "./types";
+import {
+  applyCreateSuccess,
+  applyOptimisticCreate,
+  applyOptimisticUpdate,
+  applyStatusUpdate,
+  applyUpdateSuccess,
+  revertAppointments,
+} from "./reducer";
 
 const TECHNICIAN_COLORS = ["#0f172a", "#7c3aed", "#0f766e", "#1d4ed8", "#b45309", "#be123c"];
 
@@ -154,9 +162,6 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       priority: row.priority ?? 0,
     } satisfies PlannerAppointment;
   };
-
-  const sortAppointments = (items: PlannerAppointment[]) =>
-    [...items].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
 
   const query = useQuery<PlannerAppointment[]>({
     enabled: Boolean(orgId),
@@ -298,28 +303,21 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         priority: 0,
       };
 
-      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
-        if (bayId && optimisticAppointment.bayId !== bayId) {
-          return current;
-        }
-        return sortAppointments([...current, optimisticAppointment]);
-      });
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        applyOptimisticCreate(current, optimisticAppointment, bayId)
+      );
 
       return { previous, temporaryId };
     },
     onError: (_error, _payload, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(queryKey, context.previous);
+        queryClient.setQueryData(queryKey, revertAppointments(context.previous));
       }
     },
     onSuccess: (data, _payload, context) => {
-      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
-        const withoutTemp = current.filter((item) => item.id !== context?.temporaryId);
-        if (bayId && data.bayId !== bayId) {
-          return withoutTemp;
-        }
-        return sortAppointments([...withoutTemp, data]);
-      });
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        applyCreateSuccess(current, context?.temporaryId, data, bayId)
+      );
     },
     onSettled: invalidateAppointments,
   });
@@ -369,29 +367,21 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         priority: 0,
       };
 
-      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
-        const remaining = current.filter((item) => item.id !== payload.id);
-        if (bayId && optimisticAppointment.bayId !== bayId) {
-          return remaining;
-        }
-        return sortAppointments([...remaining, optimisticAppointment]);
-      });
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        applyOptimisticUpdate(current, optimisticAppointment, bayId)
+      );
 
       return { previous };
     },
     onError: (_error, _payload, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(queryKey, context.previous);
+        queryClient.setQueryData(queryKey, revertAppointments(context.previous));
       }
     },
     onSuccess: (data) => {
-      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
-        const remaining = current.filter((item) => item.id !== data.id);
-        if (bayId && data.bayId !== bayId) {
-          return remaining;
-        }
-        return sortAppointments([...remaining, data]);
-      });
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        applyUpdateSuccess(current, data, bayId)
+      );
     },
     onSettled: invalidateAppointments,
   });
@@ -419,24 +409,20 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       const previous = queryClient.getQueryData<PlannerAppointment[]>(queryKey) ?? [];
 
       queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
-        current.map((item) => (item.id === id ? { ...item, status } : item))
+        applyStatusUpdate(current, id, status)
       );
 
       return { previous };
     },
     onError: (_error, _payload, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(queryKey, context.previous);
+        queryClient.setQueryData(queryKey, revertAppointments(context.previous));
       }
     },
     onSuccess: (data) => {
-      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) => {
-        const remaining = current.filter((item) => item.id !== data.id);
-        if (bayId && data.bayId !== bayId) {
-          return remaining;
-        }
-        return sortAppointments([...remaining, data]);
-      });
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        applyUpdateSuccess(current, data, bayId)
+      );
     },
     onSettled: invalidateAppointments,
   });

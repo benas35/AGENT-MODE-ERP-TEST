@@ -311,6 +311,15 @@ const { data } = await supabase
 - Trigger status transitions with `usePlannerAppointments().updateStatus(id, status)`; `PlannerBoard` pipes this into cards and temporarily disables actions while a mutation is pending.
 - Live status changes fan out through the Supabase realtime channel initialised inside `usePlannerAppointments`, ensuring every client reflects updates instantly.
 
+### Planner
+
+- `PlannerBoard` (props documented in `app/src/features/planner/PlannerBoard.tsx`) expects technicians, appointments, bay filter, and async handlers for move/resize/status/create.
+- Grid math, snap helpers, and zone conversion live in `app/src/features/planner/utils.ts` (`minuteHeight`, `pixelsToTime`, `timeToPixels`, `snapMinutes`), matching the Europe/Vilnius display while persisting UTC strings via `toUtcIso`.
+- Optimistic reducers and rollback helpers are centralised in `app/src/features/planner/reducer.ts` so cache updates stay deterministic and conflict-safe.
+- Planner Vitest coverage sits in `app/src/features/planner/__tests__` (`npm run test`) and exercises helper math, reducer flows, and optimistic rollback.
+- Database overlap guards are verified with Deno (`deno test --allow-env --allow-net --allow-read backend/tests/can_schedule.test.ts`); set `DATABASE_URL`/`SUPABASE_DB_URL` before running.
+- Keep storing timestamps in UTC while rendering with `ORG_TIMEZONE = Europe/Vilnius`; conflict toasts from `PlannerBoard` surface the friendly message and suggested slot when `can_schedule` rejects a move.
+
 ## Contributing
 
 1. Fork the repository
