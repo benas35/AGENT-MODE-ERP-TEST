@@ -76,6 +76,11 @@ export function handleSupabaseError(error: PostgrestError | Error | null, contex
   };
 }
 
+export interface FriendlyErrorMessage {
+  title: string;
+  description: string;
+}
+
 /**
  * Validate form data and return error messages
  */
@@ -121,4 +126,85 @@ export function formatErrorForDisplay(error: unknown): string {
     return String(error.message);
   }
   return 'An unexpected error occurred';
+}
+
+const buildDefaultDescription = (context?: string) => {
+  const label = context?.trim();
+  if (label) {
+    return `We couldn't load ${label.toLowerCase()} right now. Please try again.`;
+  }
+  return 'We could not complete your request. Please try again in a moment.';
+};
+
+const isPostgrestError = (error: unknown): error is PostgrestError => {
+  return Boolean(error && typeof error === 'object' && 'code' in error && 'message' in error);
+};
+
+export function mapErrorToFriendlyMessage(error: unknown, context?: string): FriendlyErrorMessage {
+  const title = 'Something went wrong';
+  const description = buildDefaultDescription(context);
+
+  if (!error) {
+    return { title, description };
+  }
+
+  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return {
+      title: 'You appear to be offline',
+      description: 'Check your internet connection and try again.',
+    };
+  }
+
+  if (isPostgrestError(error)) {
+    const actionable = handleSupabaseError(error, context ?? 'processing your request');
+    return { title: actionable.title, description: actionable.description };
+  }
+
+  if (typeof Response !== 'undefined' && error instanceof Response) {
+    if (error.status >= 500) {
+      return {
+        title: 'Server is having trouble',
+        description: 'Our servers returned an error. Please try again shortly.',
+      };
+    }
+
+    if (error.status === 404) {
+      return {
+        title: 'Not found',
+        description: 'The resource you were looking for was not found or has been removed.',
+      };
+    }
+
+    if (error.status === 401 || error.status === 403) {
+      return {
+        title: 'Access is restricted',
+        description: 'You do not have permission to view this content. Refresh or sign in again.',
+      };
+    }
+  }
+
+  if (error instanceof TypeError && /fetch/i.test(error.message)) {
+    return {
+      title: 'Network request failed',
+      description: 'We could not reach the server. Check your connection and try again.',
+    };
+  }
+
+  if (error instanceof Error) {
+    if (error.name === 'AbortError') {
+      return {
+        title: 'Request cancelled',
+        description: 'The request was cancelled before it completed.',
+      };
+    }
+
+    if (error.message) {
+      return { title, description: error.message };
+    }
+  }
+
+  const fallback = formatErrorForDisplay(error);
+  return fallback === 'An unexpected error occurred'
+    ? { title, description }
+    : { title, description: fallback };
 }

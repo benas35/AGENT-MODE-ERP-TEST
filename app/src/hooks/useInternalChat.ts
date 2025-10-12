@@ -3,6 +3,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import {
+  createUndoDeferred,
+  isUndoError,
+  registerUndo,
+  type UndoDeferred,
+  type UndoHandle,
+  UndoCancelledError,
+} from "@/lib/undo";
+import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
 
 export type MessagePriority = "normal" | "urgent";
 
@@ -60,6 +69,28 @@ export interface TypingUser {
 const threadListKey = (userId?: string, filters?: Record<string, unknown>) => ["chat-threads", userId, filters];
 const threadMessagesKey = (threadId?: string) => ["chat-thread", threadId];
 
+type ThreadMutationContext = {
+  previous?: ChatThread[];
+  undoHandle?: UndoHandle;
+};
+
+interface ArchiveVariables {
+  threadId: string;
+  deferred: UndoDeferred;
+}
+
+type DeleteMessageContext = {
+  previousMessages?: { messages: InternalMessage[]; participants: ChatParticipant[] };
+  previousThreads?: ChatThread[];
+  undoHandle?: UndoHandle;
+};
+
+interface DeleteMessageVariables {
+  message: InternalMessage;
+  threadId: string;
+  deferred: UndoDeferred;
+}
+
 export const normalizeAttachments = (value: any): ChatAttachment[] => {
   if (!value) return [];
   if (Array.isArray(value)) {
@@ -85,6 +116,7 @@ const buildDisplayName = (participant?: { first_name?: string | null; last_name?
 export const useChatThreads = (filters?: { workOrderId?: string | null; priority?: MessagePriority | "all" }) => {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data, ...rest } = useQuery({
     queryKey: threadListKey(profile?.id, filters),
@@ -103,6 +135,7 @@ export const useChatThreads = (filters?: { workOrderId?: string | null; priority
         .limit(50);
 
       query = query.limit(1, { foreignTable: "internal_messages" });
+      query = query.is("archived_at", null);
 
       if (filters?.workOrderId) {
         query = query.eq("work_order_id", filters.workOrderId);
@@ -183,6 +216,91 @@ export const useChatThreads = (filters?: { workOrderId?: string | null; priority
     }));
   }, [data, unreadLookup]);
 
+  const archiveMutation = useMutation<void, unknown, ArchiveVariables, ThreadMutationContext>({
+    mutationFn: async ({ threadId, deferred }) => {
+      try {
+        await deferred.promise;
+      } catch (error) {
+        if (isUndoError(error)) {
+          throw error;
+        }
+        throw error;
+      }
+
+      const { error } = await supabase
+        .from("message_threads")
+        .update({ archived_at: new Date().toISOString() } as Record<string, unknown>)
+        .eq("id", threadId);
+
+      if (error) {
+        throw error;
+      }
+    },
+    onMutate: async ({ threadId, deferred }) => {
+      const listKey = threadListKey(profile?.id, filters);
+      await queryClient.cancelQueries({ queryKey: listKey });
+      const previous = queryClient.getQueryData<ChatThread[]>(listKey);
+      queryClient.setQueryData<ChatThread[]>(listKey, (old = []) => old.filter((thread) => thread.id !== threadId));
+
+      const undoHandle = registerUndo({
+        label: "Thread archived",
+        description: "Undo within 5 seconds to restore this conversation.",
+        ttlMs: 5000,
+        do: () => {
+          deferred.resolve();
+        },
+        undo: async () => {
+          deferred.reject(new UndoCancelledError());
+          if (previous) {
+            queryClient.setQueryData(listKey, previous);
+          }
+        },
+      });
+
+      return { previous, undoHandle };
+    },
+    onError: (error, _variables, context) => {
+      context?.undoHandle?.dispose();
+
+      if (isUndoError(error)) {
+        return;
+      }
+
+      if (context?.previous) {
+        queryClient.setQueryData(threadListKey(profile?.id, filters), context.previous);
+      }
+
+      const friendly = mapErrorToFriendlyMessage(error, "archiving the thread");
+      toast({
+        title: friendly.title,
+        description: friendly.description,
+        variant: "destructive",
+      });
+    },
+    onSettled: async (_data, error, _variables, context) => {
+      context?.undoHandle?.dispose();
+      if (!error || !isUndoError(error)) {
+        const invalidations: Promise<unknown>[] = [];
+        invalidations.push(queryClient.invalidateQueries({ queryKey: ["chat-threads", profile?.id] }));
+        if (profile?.id) {
+          invalidations.push(queryClient.invalidateQueries({ queryKey: ["chat-unread-count", profile.id] }));
+          invalidations.push(queryClient.invalidateQueries({ queryKey: ["chat-unread-by-thread", profile.id] }));
+        }
+        await Promise.all(invalidations);
+      }
+    },
+  });
+
+  const archiveThread = useCallback(
+    async (threadId: string) => {
+      if (!threadId) return;
+      const deferred = createUndoDeferred();
+      deferred.promise.catch(() => undefined);
+      archiveMutation.mutate({ threadId, deferred });
+    },
+    [archiveMutation],
+  );
+
   useEffect(() => {
     if (!profile?.id) return;
 
@@ -224,6 +342,8 @@ export const useChatThreads = (filters?: { workOrderId?: string | null; priority
     unreadLoading: unreadTotalQuery.isLoading,
     unreadByThread: unreadByThreadQuery.data ?? [],
     unreadByThreadLoading: unreadByThreadQuery.isLoading,
+    archiveThread,
+    isArchiving: archiveMutation.isPending,
     ...rest,
   };
 };
@@ -286,6 +406,122 @@ export const useThreadMessages = (threadId?: string) => {
       }));
 
       return { messages: mappedMessages, participants };
+    },
+  });
+
+  const deleteMessageMutation = useMutation<void, unknown, DeleteMessageVariables, DeleteMessageContext>({
+    mutationFn: async ({ message, deferred }) => {
+      try {
+        await deferred.promise;
+      } catch (error) {
+        if (isUndoError(error)) {
+          throw error;
+        }
+        throw error;
+      }
+
+      const { error } = await supabase
+        .from("internal_messages")
+        .delete()
+        .eq("id", message.id);
+
+      if (error) {
+        throw error;
+      }
+    },
+    onMutate: async ({ message, threadId: activeThreadId, deferred }) => {
+      if (!activeThreadId) {
+        deferred.resolve();
+        return { previousMessages: undefined, previousThreads: undefined, undoHandle: undefined };
+      }
+
+      await queryClient.cancelQueries({ queryKey: threadMessagesKey(activeThreadId) });
+      const previousMessages = queryClient.getQueryData<{ messages: InternalMessage[]; participants: ChatParticipant[] }>(
+        threadMessagesKey(activeThreadId),
+      );
+      queryClient.setQueryData(threadMessagesKey(activeThreadId), (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          messages: old.messages.filter((item) => item.id !== message.id),
+        };
+      });
+
+      const listKey = threadListKey(profile?.id);
+      const previousThreads = queryClient.getQueryData<ChatThread[]>(listKey);
+      if (previousThreads) {
+        const filteredMessages = (previousMessages?.messages ?? []).filter((item) => item.id !== message.id);
+        const nextLast = filteredMessages[filteredMessages.length - 1] ?? null;
+        queryClient.setQueryData<ChatThread[]>(listKey, (threads = []) =>
+          threads.map((thread) =>
+            thread.id === activeThreadId
+              ? {
+                  ...thread,
+                  last_message: nextLast ?? null,
+                  last_message_at: nextLast?.created_at ?? thread.last_message_at,
+                }
+              : thread,
+          ),
+        );
+      }
+
+      const undoHandle = registerUndo({
+        label: "Message deleted",
+        description: "Undo within 5 seconds to restore this message.",
+        ttlMs: 5000,
+        do: () => {
+          deferred.resolve();
+        },
+        undo: async () => {
+          deferred.reject(new UndoCancelledError());
+          if (previousMessages) {
+            queryClient.setQueryData(threadMessagesKey(activeThreadId), previousMessages);
+          }
+          if (previousThreads) {
+            queryClient.setQueryData(listKey, previousThreads);
+          }
+        },
+      });
+
+      return { previousMessages, previousThreads, undoHandle };
+    },
+    onError: (error, variables, context) => {
+      context?.undoHandle?.dispose();
+
+      if (isUndoError(error)) {
+        return;
+      }
+
+      if (context?.previousMessages && variables.threadId) {
+        queryClient.setQueryData(threadMessagesKey(variables.threadId), context.previousMessages);
+      }
+
+      if (context?.previousThreads) {
+        queryClient.setQueryData(threadListKey(profile?.id), context.previousThreads);
+      }
+
+      const friendly = mapErrorToFriendlyMessage(error, "deleting the message");
+      toast({
+        title: friendly.title,
+        description: friendly.description,
+        variant: "destructive",
+      });
+    },
+    onSettled: async (_data, error, variables, context) => {
+      context?.undoHandle?.dispose();
+      if (!variables.threadId) return;
+
+      if (!error || !isUndoError(error)) {
+        const invalidations: Promise<unknown>[] = [
+          queryClient.invalidateQueries({ queryKey: threadMessagesKey(variables.threadId) }),
+          queryClient.invalidateQueries({ queryKey: ["chat-threads", profile?.id] }),
+        ];
+        if (profile?.id) {
+          invalidations.push(queryClient.invalidateQueries({ queryKey: ["chat-unread-count", profile.id] }));
+          invalidations.push(queryClient.invalidateQueries({ queryKey: ["chat-unread-by-thread", profile.id] }));
+        }
+        await Promise.all(invalidations);
+      }
     },
   });
 
@@ -437,11 +673,23 @@ export const useThreadMessages = (threadId?: string) => {
     },
   });
 
+  const deleteMessage = useCallback(
+    async (message: InternalMessage) => {
+      if (!threadId) return;
+      const deferred = createUndoDeferred();
+      deferred.promise.catch(() => undefined);
+      deleteMessageMutation.mutate({ message, threadId, deferred });
+    },
+    [deleteMessageMutation, threadId],
+  );
+
   return {
     ...messageQuery,
     typingUsers,
     setTyping,
     sendMessage: sendMutation.mutateAsync,
     sending: sendMutation.isPending,
+    deleteMessage,
+    isDeletingMessage: deleteMessageMutation.isPending,
   };
 };

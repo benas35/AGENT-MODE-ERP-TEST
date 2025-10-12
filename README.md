@@ -52,19 +52,7 @@ cd auto-shop-erp
 npm install
 ```
 
-3. Copy environment variables:
-```bash
-cp .env.example .env
-```
-
-4. Update `.env` with your Supabase credentials:
-```env
-VITE_SUPABASE_PROJECT_ID=your-project-id
-VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-```
-
-5. Run database migrations (if using local Supabase):
+3. Run database migrations (if using local Supabase):
 ```bash
 npx supabase db reset
 ```
@@ -75,6 +63,30 @@ Start the development server:
 ```bash
 npm run dev
 ```
+
+### Environment Setup
+
+1. Copy the sample file and create your local environment file:
+   ```bash
+   cp .env.local.example .env.local
+   ```
+2. In the Supabase dashboard, open **Settings → API** and copy the project URL and anonymous key into `.env.local`.
+3. Ensure the file includes:
+   ```env
+   VITE_SUPABASE_URL=https://your-supabase-project.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   VITE_APP_ENV=local
+   ORG_TIMEZONE=Europe/Vilnius
+   ```
+4. Restart `npm run dev` after editing the file so Vite picks up the new variables. Once the values are provided, the BootGuard banner disappears and the app loads normally.
+
+### Local Boot & Auth Diagnostics
+
+- `BootGuard` (`app/src/app/BootGuard.tsx`) blocks rendering and shows a red panel if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` are missing. Existing environments that still use `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, or `SUPABASE_ANON_KEY` are recognised automatically but should migrate to the `VITE_` names when convenient.
+- Supabase auth relies on the browser client in `app/src/lib/supabaseClient.ts`; sessions persist locally with `persistSession: true`.
+- Add `http://localhost:5173` to Supabase **Auth → URL Configuration** (Redirect URLs and Additional Origins) so password and magic-link flows complete in dev.
+- The planner shell wraps routes with `AuthGate` to render the sign-in experience when no session is available.
+- Visit `/health` while the dev server runs to confirm the build is serving (returns `OK — Oldauta build …`).
 
 ### Phase 1.1 – Vehicle Media & Documentation
 
@@ -158,8 +170,8 @@ pg_prove backend/tests/rls/customer_portal.sql
 ```
 
 To try the portal locally:
-1. Open `http://localhost:8080/portal` and request a magic link using the demo customer email (`jonas.jonaitis@email.com`).
-2. Copy the `token` returned from the `customer-portal` function logs and visit `http://localhost:8080/portal/session?token=<TOKEN>`.
+1. Open `http://localhost:5173/portal` and request a magic link using the demo customer email (`jonas.jonaitis@email.com`).
+2. Copy the `token` returned from the `customer-portal` function logs and visit `http://localhost:5173/portal/session?token=<TOKEN>`.
 3. Review the work order status, send messages, and approve/decline the demo estimate.
 
 ### Demo Accounts
@@ -256,6 +268,69 @@ const { data } = await supabase
   .select('*, customer:customers(*), vehicle:vehicles(*)')
   .order('created_at', { ascending: false })
 ```
+
+### Phase 2 / Task A
+
+- Use `app/src/app/ErrorBoundary.tsx` for global and route fallbacks (`createRouteErrorBoundary`).
+- Default React Query retry/backoff lives in `app/src/lib/queryClient.ts`.
+- Wrap new routes with `RouteBoundary` or export a `createRouteErrorBoundary` call for consistent UX.
+
+### Phase 2 / Task B
+
+- Skeleton loaders live in `app/src/components/skeletons` and expose `role="status"`/`aria-busy` for tables, cards, and media grids.
+- The shared upload queue is implemented in `app/src/features/uploads/useUploadQueue.ts` (supports enqueue, retry, cancel, dismiss).
+- Vehicle and work-order media features consume the queue for per-file progress; pass queue items to `WorkOrderPhotoTimeline` to surface upload status.
+
+### Phase 2 / Task C
+
+- Undo workflows rely on `registerUndo`/`createUndoDeferred` from `app/src/lib/undo.tsx` to delay commits and wire the toast-driven cancel action.
+- Wrap React Query mutations with deferred promises (`onMutate` + `UndoCancelledError`) so `undo` restores cached snapshots and `do` performs the real mutation after the TTL.
+- Map mutation failures through `mapErrorToFriendlyMessage` to surface consistent destructive/error toasts when optimistic changes cannot be committed.
+
+### Phase 2 / Task D
+
+- Shared Zod/RHF primitives live in `app/src/lib/validation.ts` (`stringNonEmpty`, `safeSubmit`, `schemaResolver`) and power the caption editors plus the quick-reply manager.
+- Media caption dialogs/forms follow the pattern in `VehicleMediaGallery` and `WorkOrderPhotoTimeline`, using `mediaCaptionSchema` and `FormField` to surface live errors and character counts.
+- Confirmation prompts respect the “Don’t show again” preference keys via `app/src/lib/preferences.ts`; reuse `ConfirmationDialog` with a unique `preferenceKey` for destructive or status-changing flows.
+
+### Phase 2 / Task E
+
+- Reuse the lightweight animation in `app/src/components/feedback/SuccessCheck.tsx` to confirm uploads or sends—mount it with a success message and let it auto-dismiss.
+- Media upload flows enqueue progress via the shared queue; see `VehicleMediaUploader` and `WorkOrderPhotoSection` for wiring success indicators to queue state.
+- Empty states and illustrations live in `app/src/assets/empties`; import the SVGs to keep gallery, timeline, and inbox blanks consistent and include a CTA button.
+
+### Phase 3 / Part A
+
+- Apply the planner schema and helper function with `npx supabase db push --file backend/sql/030-planner.sql` (seeds included for demo org data).
+- Demo technicians, bays, and appointments seed against the ProFix organization and use Europe/Vilnius local time converted to stored UTC.
+- Keep planner timestamps in UTC in the database while formatting in Europe/Vilnius on the frontend.
+
+### Phase 3 / Part B
+
+- The interactive planner board lives in `app/src/features/planner` (`PlannerBoard`, `AppointmentCard`, `ResizeHandle`) and powers the `/planner` page.
+- Fetch technicians, bays, and day appointments via `usePlannerTechnicians`, `usePlannerBays`, and `usePlannerAppointments` to enable drag, resize, and Supabase `can_schedule` validation with 15-minute snapping.
+- `PlannerBoard` accepts the bay filter, mutation handlers, and emits resolved ISO timestamps so new routes can adopt consistent planner UX quickly.
+
+### Phase 3 / Part C
+
+- Launch the edit/create experience with `EditAppointmentDrawer`—pass planner technicians/bays plus either an existing appointment or slot defaults and handle its `onSubmit` with the planner mutations.
+- React Query optimistic flows for create/update live in `usePlannerAppointments`; call `createAppointment`/`updateAppointment` after `canSchedule` to keep caches warm while Supabase persists changes.
+- Form date inputs expect Europe/Vilnius local strings (`datetime-local` with 15-minute steps) and convert back to UTC via `zonedTimeToUtc` before saving.
+
+### Phase 3 / Part D
+
+- Status labels and colours are centralised in `app/src/features/planner/types.ts`, with `AppointmentCard` exposing quick-action buttons and a context menu that call into the shared helpers.
+- Trigger status transitions with `usePlannerAppointments().updateStatus(id, status)`; `PlannerBoard` pipes this into cards and temporarily disables actions while a mutation is pending.
+- Live status changes fan out through the Supabase realtime channel initialised inside `usePlannerAppointments`, ensuring every client reflects updates instantly.
+
+### Planner
+
+- `PlannerBoard` (props documented in `app/src/features/planner/PlannerBoard.tsx`) expects technicians, appointments, bay filter, and async handlers for move/resize/status/create.
+- Grid math, snap helpers, and zone conversion live in `app/src/features/planner/utils.ts` (`minuteHeight`, `pixelsToTime`, `timeToPixels`, `snapMinutes`), matching the Europe/Vilnius display while persisting UTC strings via `toUtcIso`.
+- Optimistic reducers and rollback helpers are centralised in `app/src/features/planner/reducer.ts` so cache updates stay deterministic and conflict-safe.
+- Planner Vitest coverage sits in `app/src/features/planner/__tests__` (`npm run test`) and exercises helper math, reducer flows, and optimistic rollback.
+- Database overlap guards are verified with Deno (`deno test --allow-env --allow-net --allow-read backend/tests/can_schedule.test.ts`); set `DATABASE_URL`/`SUPABASE_DB_URL` before running.
+- Keep storing timestamps in UTC while rendering with `ORG_TIMEZONE = Europe/Vilnius`; conflict toasts from `PlannerBoard` surface the friendly message and suggested slot when `can_schedule` rejects a move.
 
 ## Contributing
 
