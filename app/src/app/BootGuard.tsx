@@ -18,8 +18,10 @@ export function BootGuard({ children }: BootGuardProps) {
         >
           <h1 className="text-xl font-semibold">Configuration required</h1>
           <p className="mt-2 text-sm text-destructive/80">
-            We couldn&apos;t start Oldauta because the following environment variables are missing:
+            Missing Supabase environment variables. Please copy <code>.env.local.example</code> to{" "}
+            <code>.env.local</code>, fill in the values, and restart the dev server.
           </p>
+          <p className="mt-4 text-sm text-destructive/80">The following keys are required:</p>
           <ul className="mt-4 list-disc space-y-1 pl-6 text-sm">
             {missing.map((key) => (
               <li key={key} className="font-mono">
@@ -28,9 +30,8 @@ export function BootGuard({ children }: BootGuardProps) {
             ))}
           </ul>
           <p className="mt-4 text-sm text-destructive/70">
-            Add them to your <code>.env.local</code> file ({REQUIRED_SUPABASE_ENV_KEYS.join(", ")}). We also accept common
-            fallbacks such as <code>VITE_SUPABASE_PUBLISHABLE_KEY</code>, <code>SUPABASE_URL</code>, and
-            <code>SUPABASE_ANON_KEY</code>. Restart the dev server after updating the file.
+            ({REQUIRED_SUPABASE_ENV_KEYS.join(", ")}) are read via <code>import.meta.env</code>. Legacy aliases such as
+            <code>SUPABASE_URL</code> or <code>SUPABASE_ANON_KEY</code> are recognised automatically.
           </p>
         </div>
       </div>

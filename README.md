@@ -52,20 +52,7 @@ cd auto-shop-erp
 npm install
 ```
 
-3. Copy environment variables:
-```bash
-cp .env.example .env
-```
-
-4. Update `.env` (or `.env.local`) with your Supabase credentials:
-```env
-VITE_SUPABASE_PROJECT_ID=your-project-id
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_APP_ENV=local
-```
-
-5. Run database migrations (if using local Supabase):
+3. Run database migrations (if using local Supabase):
 ```bash
 npx supabase db reset
 ```
@@ -76,6 +63,22 @@ Start the development server:
 ```bash
 npm run dev
 ```
+
+### Environment Setup
+
+1. Copy the sample file and create your local environment file:
+   ```bash
+   cp .env.local.example .env.local
+   ```
+2. In the Supabase dashboard, open **Settings → API** and copy the project URL and anonymous key into `.env.local`.
+3. Ensure the file includes:
+   ```env
+   VITE_SUPABASE_URL=https://your-supabase-project.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   VITE_APP_ENV=local
+   ORG_TIMEZONE=Europe/Vilnius
+   ```
+4. Restart `npm run dev` after editing the file so Vite picks up the new variables. Once the values are provided, the BootGuard banner disappears and the app loads normally.
 
 ### Local Boot & Auth Diagnostics
 
