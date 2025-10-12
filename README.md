@@ -79,7 +79,7 @@ npm run dev
 
 ### Local Boot & Auth Diagnostics
 
-- `BootGuard` (`app/src/app/BootGuard.tsx`) blocks rendering and shows a red panel if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` are missing. Existing environments that still use `VITE_SUPABASE_PUBLISHABLE_KEY` are supported automatically but should migrate to the new name when convenient.
+- `BootGuard` (`app/src/app/BootGuard.tsx`) blocks rendering and shows a red panel if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` are missing. Existing environments that still use `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, or `SUPABASE_ANON_KEY` are recognised automatically but should migrate to the `VITE_` names when convenient.
 - Supabase auth relies on the browser client in `app/src/lib/supabaseClient.ts`; sessions persist locally with `persistSession: true`.
 - Add `http://localhost:5173` to Supabase **Auth → URL Configuration** (Redirect URLs and Additional Origins) so password and magic-link flows complete in dev.
 - The planner shell wraps routes with `AuthGate` to render the sign-in experience when no session is available.

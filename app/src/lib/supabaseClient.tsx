@@ -10,34 +10,50 @@ export const REQUIRED_SUPABASE_ENV_KEYS = [
 type RequiredSupabaseKey = (typeof REQUIRED_SUPABASE_ENV_KEYS)[number];
 
 const LEGACY_KEY_ALIASES: Record<RequiredSupabaseKey, string[]> = {
-  VITE_SUPABASE_URL: [],
-  VITE_SUPABASE_ANON_KEY: ["VITE_SUPABASE_PUBLISHABLE_KEY"],
+  VITE_SUPABASE_URL: [
+    "SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "REACT_APP_SUPABASE_URL",
+    "PUBLIC_SUPABASE_URL",
+  ],
+  VITE_SUPABASE_ANON_KEY: [
+    "VITE_SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_PUBLIC_ANON_KEY",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "REACT_APP_SUPABASE_ANON_KEY",
+    "PUBLIC_SUPABASE_ANON_KEY",
+  ],
 };
 
 type EnvShape = Record<string, string | undefined>;
 
-export function collectMissingSupabaseEnv(env: EnvShape = import.meta.env): RequiredSupabaseKey[] {
-  return REQUIRED_SUPABASE_ENV_KEYS.filter((key) => {
-    if (env[key]) {
-      return false;
-    }
+function resolveWithAliases(key: RequiredSupabaseKey, env: EnvShape) {
+  if (env[key]) {
+    return env[key];
+  }
 
-    const aliases = LEGACY_KEY_ALIASES[key] ?? [];
-    return !aliases.some((alias) => env[alias]);
-  });
+  const aliases = LEGACY_KEY_ALIASES[key] ?? [];
+  for (const alias of aliases) {
+    const value = env[alias];
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+export function collectMissingSupabaseEnv(env: EnvShape = import.meta.env): RequiredSupabaseKey[] {
+  return REQUIRED_SUPABASE_ENV_KEYS.filter((key) => !resolveWithAliases(key, env));
 }
 
 function resolveSupabaseUrl(env: EnvShape = import.meta.env) {
-  return env.VITE_SUPABASE_URL;
+  return resolveWithAliases("VITE_SUPABASE_URL", env);
 }
 
 function resolveSupabaseAnonKey(env: EnvShape = import.meta.env) {
-  return (
-    env.VITE_SUPABASE_ANON_KEY ||
-    env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    env.SUPABASE_ANON_KEY ||
-    env.SUPABASE_PUBLIC_ANON_KEY
-  );
+  return resolveWithAliases("VITE_SUPABASE_ANON_KEY", env);
 }
 
 export class SupabaseConfigError extends Error {
