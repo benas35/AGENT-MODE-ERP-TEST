@@ -8,6 +8,7 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { addMinutes, differenceInMinutes, format, isSameDay } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -19,6 +20,7 @@ import {
   type PlannerResizePayload,
   type PlannerStatus,
   type PlannerTechnician,
+  ORG_TIMEZONE,
   DEFAULT_APPOINTMENT_MINUTES,
   MIN_SLOT_MINUTES,
 } from "./types";
@@ -273,6 +275,67 @@ export const PlannerBoard = ({
     });
   }, []);
 
+  useEffect(() => {
+    if (!draggingId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setDraggingId(null);
+      clearOptimistic(draggingId);
+      destinationLane.current = null;
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [clearOptimistic, draggingId]);
+
+  const checkConflict = useCallback(
+    (
+      id: string,
+      start: Date,
+      end: Date,
+      technicianId: string | null,
+      bayId: string | null
+    ) =>
+      derivedAppointments.some((other) => {
+        if (other.id === id) return false;
+        const override = optimistic[other.id];
+        const otherStart = override?.start ?? other.startZoned;
+        const otherEnd = override?.end ?? other.endZoned;
+        const otherTechnician = override?.technicianId ?? other.technicianId ?? null;
+        const sameTechnician = otherTechnician === technicianId;
+        const sameBay = bayId != null && other.bayId != null && other.bayId === bayId;
+        if (!sameTechnician && !sameBay) return false;
+        return start < otherEnd && end > otherStart;
+      }),
+    [derivedAppointments, optimistic]
+  );
+
+  const findNearestAvailableSlot = useCallback(
+    (
+      id: string,
+      technicianId: string | null,
+      bayId: string | null,
+      start: Date,
+      end: Date
+    ) => {
+      const durationMinutes = Math.max(
+        MIN_SLOT_MINUTES,
+        differenceInMinutes(end, start)
+      );
+      const latestStart = addMinutes(boardWindow.end, -durationMinutes);
+      let candidate = start;
+      while (candidate.getTime() <= latestStart.getTime()) {
+        const candidateEnd = addMinutes(candidate, durationMinutes);
+        if (!checkConflict(id, candidate, candidateEnd, technicianId, bayId)) {
+          return candidate;
+        }
+        candidate = addMinutes(candidate, MIN_SLOT_MINUTES);
+      }
+      return null;
+    },
+    [boardWindow.end, checkConflict]
+  );
+
   const handleStatusChange = useCallback(
     async (id: string, status: PlannerStatus) => {
       const current = derivedMap.get(id);
@@ -345,9 +408,33 @@ export const PlannerBoard = ({
         });
 
         if (!allowed) {
+          const suggestionStart = findNearestAvailableSlot(
+            draggableId,
+            technicianId,
+            derived.bayId,
+            start,
+            end
+          );
+          const durationMinutes = Math.max(
+            MIN_SLOT_MINUTES,
+            differenceInMinutes(end, start)
+          );
+          const suggestionText = suggestionStart
+            ? `Next open window: ${formatInTimeZone(
+                suggestionStart,
+                ORG_TIMEZONE,
+                "HH:mm"
+              )} – ${formatInTimeZone(
+                addMinutes(suggestionStart, durationMinutes),
+                ORG_TIMEZONE,
+                "HH:mm"
+              )}`
+            : null;
           toast({
             title: "Cannot move appointment",
-            description: "This slot conflicts with another appointment.",
+            description:
+              "This slot conflicts with another appointment." +
+              (suggestionText ? ` ${suggestionText}.` : ""),
             variant: "destructive",
           });
           return;
@@ -418,9 +505,21 @@ export const PlannerBoard = ({
           });
         };
 
+        const handleKeyDown = (keyEvent: KeyboardEvent) => {
+          if (keyEvent.key !== "Escape") return;
+          keyEvent.preventDefault();
+          keyEvent.stopPropagation();
+          window.removeEventListener("pointermove", handleMove);
+          window.removeEventListener("pointerup", handleUp);
+          window.removeEventListener("keydown", handleKeyDown);
+          setResizingId(null);
+          clearOptimistic(id);
+        };
+
         const handleUp = async () => {
           window.removeEventListener("pointermove", handleMove);
           window.removeEventListener("pointerup", handleUp);
+          window.removeEventListener("keydown", handleKeyDown);
 
           let finalStart = derived.startZoned;
           let finalEnd = derived.endZoned;
@@ -454,9 +553,33 @@ export const PlannerBoard = ({
             });
 
             if (!allowed) {
+              const suggestionStart = findNearestAvailableSlot(
+                id,
+                derived.technicianId ?? null,
+                derived.bayId,
+                finalStart,
+                finalEnd
+              );
+              const durationMinutes = Math.max(
+                MIN_SLOT_MINUTES,
+                differenceInMinutes(finalEnd, finalStart)
+              );
+              const suggestionText = suggestionStart
+                ? `Next open window: ${formatInTimeZone(
+                    suggestionStart,
+                    ORG_TIMEZONE,
+                    "HH:mm"
+                  )} – ${formatInTimeZone(
+                    addMinutes(suggestionStart, durationMinutes),
+                    ORG_TIMEZONE,
+                    "HH:mm"
+                  )}`
+                : null;
               toast({
                 title: "Cannot resize appointment",
-                description: "This change conflicts with another appointment.",
+                description:
+                  "This change conflicts with another appointment." +
+                  (suggestionText ? ` ${suggestionText}.` : ""),
                 variant: "destructive",
               });
               return;
@@ -476,6 +599,7 @@ export const PlannerBoard = ({
 
         window.addEventListener("pointermove", handleMove);
         window.addEventListener("pointerup", handleUp, { once: true });
+        window.addEventListener("keydown", handleKeyDown);
       },
     [
       boardWindow.end,
@@ -483,6 +607,7 @@ export const PlannerBoard = ({
       canSchedule,
       clearOptimistic,
       derivedMap,
+      findNearestAvailableSlot,
       onAppointmentResize,
       totalPixels,
     ]
@@ -636,6 +761,18 @@ export const PlannerBoard = ({
                         const override = optimistic[appointment.id];
                         const start = override?.start ?? appointment.startZoned;
                         const end = override?.end ?? appointment.endZoned;
+                        const candidateTechnician =
+                          override?.technicianId ?? (technician ? technician.id : null);
+                        const isActive = draggingId === appointment.id || resizingId === appointment.id;
+                        const hasConflict =
+                          isActive &&
+                          checkConflict(
+                            appointment.id,
+                            start,
+                            end,
+                            candidateTechnician,
+                            appointment.bayId
+                          );
                         const top = timeToPixels(start, boardWindow.start);
                         const height = Math.max(
                           MIN_SLOT_MINUTES * minuteHeight,
@@ -665,6 +802,8 @@ export const PlannerBoard = ({
                                 dragHandleProps={dragProvided.dragHandleProps}
                                 draggableProps={dragProvided.draggableProps}
                                 innerRef={dragProvided.innerRef}
+                                hasConflict={hasConflict}
+                                conflictMessage="Conflicts with another appointment in this lane or bay"
                               />
                             )}
                           </Draggable>

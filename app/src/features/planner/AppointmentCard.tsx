@@ -14,6 +14,12 @@ import {
   ContextMenuRadioItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "./ResizeHandle";
 import type { PlannerStatus } from "./types";
@@ -64,6 +70,8 @@ interface AppointmentCardProps {
   dragHandleProps?: DraggableProvidedDragHandleProps | null;
   draggableProps: DraggableProvidedDraggableProps;
   innerRef: (element: HTMLElement | null) => void;
+  hasConflict?: boolean;
+  conflictMessage?: string;
 }
 
 export const AppointmentCard = ({
@@ -80,6 +88,8 @@ export const AppointmentCard = ({
   dragHandleProps,
   draggableProps,
   innerRef,
+  hasConflict = false,
+  conflictMessage,
 }: AppointmentCardProps) => {
   const timeRange = `${formatInTimeZone(appointment.startsAt, ORG_TIMEZONE, "HH:mm")} – ${formatInTimeZone(
     appointment.endsAt,
@@ -101,113 +111,142 @@ export const AppointmentCard = ({
   };
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          ref={innerRef}
-          {...draggableProps}
-          style={{
-            ...draggableProps.style,
-            position: "absolute",
-            top,
-            left: "0.75rem",
-            right: "0.75rem",
-            height,
-          }}
-          className={cn(
-            "group relative select-none rounded-lg border text-sm shadow-sm outline-none transition-shadow transition-colors",
-            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-            cardStyles[appointment.status],
-            isDragging ? "ring-2 ring-primary shadow-lg" : "",
-            isResizing ? "border-dashed" : ""
-          )}
-          onPointerDown={onPointerDown}
-          role="button"
-          tabIndex={0}
-          aria-label={`${appointment.title} ${timeRange}`}
-          data-appointment-card="true"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen?.();
-          }}
-          onKeyDown={handleKeyDown}
-        >
-          <ResizeHandle direction="start" onPointerDown={onResizeStart("start")} />
-          <div
-            {...(dragHandleProps ?? {})}
-            className="flex cursor-grab items-start justify-between gap-2 rounded-t-lg px-3 py-2 active:cursor-grabbing"
-          >
-            <div className="min-w-0 space-y-1">
-              <p className="flex items-center gap-1 truncate font-medium leading-tight">
-                {isCompleted ? <CheckCircle2 aria-hidden className="h-4 w-4 text-emerald-600" /> : null}
-                <span className="truncate">{appointment.title}</span>
-              </p>
-              <p className="text-xs text-muted-foreground">{timeRange}</p>
-              {details ? (
-                <p className="truncate text-xs text-muted-foreground">{details}</p>
-              ) : null}
-            </div>
-            <span
-              className={cn(
-                "whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                statusChipStyles[appointment.status]
-              )}
-            >
-              {PLANNER_STATUS_LABELS[appointment.status]}
-            </span>
-          </div>
-          {appointment.notes ? (
-            <div className="px-3 pb-2 text-xs text-muted-foreground">
-              <p className="line-clamp-2 leading-snug">{appointment.notes}</p>
-            </div>
-          ) : null}
-          <div
-            className={cn(
-              "absolute bottom-3 right-3 flex flex-wrap justify-end gap-1",
-              "pointer-events-none opacity-0 transition-opacity duration-150",
-              "group-hover:pointer-events-auto group-hover:opacity-100",
-              "group-focus-within:pointer-events-auto group-focus-within:opacity-100"
-            )}
-          >
-            {quickActionTargets.map((action) => (
-              <Button
-                key={action.status}
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="pointer-events-auto h-7 px-2 text-xs shadow-sm backdrop-blur bg-background/80"
-                disabled={disableStatusActions || appointment.status === action.status}
+    <TooltipProvider delayDuration={200}>
+      <ContextMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <ContextMenuTrigger asChild>
+              <div
+                ref={innerRef}
+                {...draggableProps}
+                style={{
+                  ...draggableProps.style,
+                  position: "absolute",
+                  top,
+                  left: "0.75rem",
+                  right: "0.75rem",
+                  height,
+                }}
+                className={cn(
+                  "group relative select-none rounded-lg border text-sm shadow-sm outline-none transition-shadow transition-colors",
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                  cardStyles[appointment.status],
+                  isDragging ? "ring-2 ring-primary shadow-lg" : "",
+                  isResizing ? "border-dashed" : "",
+                  hasConflict ? "border-destructive/70 ring-2 ring-destructive/50" : ""
+                )}
+                onPointerDown={onPointerDown}
+                role="button"
+                tabIndex={0}
+                aria-label={`${appointment.title} ${timeRange}`}
+                aria-invalid={hasConflict || undefined}
+                aria-describedby={hasConflict ? `${appointment.id}-conflict` : undefined}
+                data-appointment-card="true"
                 onClick={(event) => {
                   event.stopPropagation();
-                  void onStatusChange(action.status);
+                  onOpen?.();
                 }}
+                onKeyDown={handleKeyDown}
               >
-                {action.label}
-              </Button>
+                {hasConflict ? (
+                  <>
+                    <span id={`${appointment.id}-conflict`} className="sr-only">
+                      {conflictMessage ?? "Conflicts with another appointment"}
+                    </span>
+                    <span
+                      className="pointer-events-none absolute inset-0 rounded-lg bg-destructive/10"
+                      aria-hidden
+                    />
+                  </>
+                ) : null}
+                <ResizeHandle direction="start" onPointerDown={onResizeStart("start")} />
+                <div
+                  {...(dragHandleProps ?? {})}
+                  aria-label={`${appointment.title} drag handle`}
+                  className="flex cursor-grab items-start justify-between gap-2 rounded-t-lg px-3 py-2 active:cursor-grabbing"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="flex items-center gap-1 truncate font-medium leading-tight">
+                      {isCompleted ? <CheckCircle2 aria-hidden className="h-4 w-4 text-emerald-600" /> : null}
+                      <span className="truncate">{appointment.title}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">{timeRange}</p>
+                    {details ? (
+                      <p className="truncate text-xs text-muted-foreground">{details}</p>
+                    ) : null}
+                  </div>
+                  <span
+                    className={cn(
+                      "whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      statusChipStyles[appointment.status]
+                    )}
+                  >
+                    {PLANNER_STATUS_LABELS[appointment.status]}
+                  </span>
+                </div>
+                {appointment.notes ? (
+                  <div className="px-3 pb-2 text-xs text-muted-foreground">
+                    <p className="line-clamp-2 leading-snug">{appointment.notes}</p>
+                  </div>
+                ) : null}
+                <div
+                  className={cn(
+                    "absolute bottom-3 right-3 flex flex-wrap justify-end gap-1",
+                    "pointer-events-none opacity-0 transition-opacity duration-150",
+                    "group-hover:pointer-events-auto group-hover:opacity-100",
+                    "group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                  )}
+                >
+                  {quickActionTargets.map((action) => (
+                    <Button
+                      key={action.status}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="pointer-events-auto h-7 px-2 text-xs shadow-sm backdrop-blur bg-background/80"
+                      disabled={disableStatusActions || appointment.status === action.status}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onStatusChange(action.status);
+                      }}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+                <ResizeHandle direction="end" onPointerDown={onResizeStart("end")} />
+              </div>
+            </ContextMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="right" align="start" className="max-w-xs space-y-1 text-sm">
+            <p className="font-semibold leading-snug">{appointment.title}</p>
+            <p className="text-xs text-muted-foreground">{timeRange}</p>
+            {details ? <p className="text-xs text-muted-foreground">{details}</p> : null}
+            {appointment.notes ? (
+              <p className="text-xs text-muted-foreground">{appointment.notes}</p>
+            ) : null}
+          </TooltipContent>
+        </Tooltip>
+        <ContextMenuContent className="w-56">
+          <ContextMenuLabel>Change status</ContextMenuLabel>
+          <ContextMenuRadioGroup
+            value={appointment.status}
+            onValueChange={(value) => {
+              const next = value as PlannerStatus;
+              if (next === appointment.status || disableStatusActions) {
+                return;
+              }
+              void onStatusChange(next);
+            }}
+          >
+            {PLANNER_STATUSES.map((status) => (
+              <ContextMenuRadioItem key={status} value={status}>
+                {PLANNER_STATUS_LABELS[status]}
+              </ContextMenuRadioItem>
             ))}
-          </div>
-          <ResizeHandle direction="end" onPointerDown={onResizeStart("end")} />
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
-        <ContextMenuLabel>Change status</ContextMenuLabel>
-        <ContextMenuRadioGroup
-          value={appointment.status}
-          onValueChange={(value) => {
-            const next = value as PlannerStatus;
-            if (next === appointment.status || disableStatusActions) {
-              return;
-            }
-            void onStatusChange(next);
-          }}
-        >
-          {PLANNER_STATUSES.map((status) => (
-            <ContextMenuRadioItem key={status} value={status}>
-              {PLANNER_STATUS_LABELS[status]}
-            </ContextMenuRadioItem>
-          ))}
-        </ContextMenuRadioGroup>
-      </ContextMenuContent>
-    </ContextMenu>
+          </ContextMenuRadioGroup>
+        </ContextMenuContent>
+      </ContextMenu>
+    </TooltipProvider>
   );
 };
