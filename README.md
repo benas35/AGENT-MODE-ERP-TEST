@@ -57,11 +57,12 @@ npm install
 cp .env.example .env
 ```
 
-4. Update `.env` with your Supabase credentials:
+4. Update `.env` (or `.env.local`) with your Supabase credentials:
 ```env
 VITE_SUPABASE_PROJECT_ID=your-project-id
-VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_APP_ENV=local
 ```
 
 5. Run database migrations (if using local Supabase):
@@ -75,6 +76,14 @@ Start the development server:
 ```bash
 npm run dev
 ```
+
+### Local Boot & Auth Diagnostics
+
+- `BootGuard` (`app/src/app/BootGuard.tsx`) blocks rendering and shows a red panel if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` are missing.
+- Supabase auth relies on the browser client in `app/src/lib/supabaseClient.ts`; sessions persist locally with `persistSession: true`.
+- Add `http://localhost:5173` to Supabase **Auth → URL Configuration** (Redirect URLs and Additional Origins) so password and magic-link flows complete in dev.
+- The planner shell wraps routes with `AuthGate` to render the sign-in experience when no session is available.
+- Visit `/health` while the dev server runs to confirm the build is serving (returns `OK — Oldauta build …`).
 
 ### Phase 1.1 – Vehicle Media & Documentation
 
@@ -158,8 +167,8 @@ pg_prove backend/tests/rls/customer_portal.sql
 ```
 
 To try the portal locally:
-1. Open `http://localhost:8080/portal` and request a magic link using the demo customer email (`jonas.jonaitis@email.com`).
-2. Copy the `token` returned from the `customer-portal` function logs and visit `http://localhost:8080/portal/session?token=<TOKEN>`.
+1. Open `http://localhost:5173/portal` and request a magic link using the demo customer email (`jonas.jonaitis@email.com`).
+2. Copy the `token` returned from the `customer-portal` function logs and visit `http://localhost:5173/portal/session?token=<TOKEN>`.
 3. Review the work order status, send messages, and approve/decline the demo estimate.
 
 ### Demo Accounts

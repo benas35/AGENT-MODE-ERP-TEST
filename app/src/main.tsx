@@ -1,10 +1,43 @@
+import { StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App.tsx";
+import { RouterProvider } from "react-router-dom";
 import "./index.css";
 import { ErrorBoundary } from "./app/ErrorBoundary";
+import { BootGuard } from "./app/BootGuard";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./lib/queryClient";
+import { SupabaseProvider } from "./lib/supabaseClient";
+import { AuthProvider } from "./hooks/useAuth";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { router } from "./app/router";
+import { AppSplash } from "./app/AppSplash";
 
-createRoot(document.getElementById("root")!).render(
-  <ErrorBoundary>
-    <App />
-  </ErrorBoundary>
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  throw new Error("Root element with id 'root' was not found");
+}
+
+createRoot(rootElement).render(
+  <StrictMode>
+    <ErrorBoundary>
+      <BootGuard>
+        <QueryClientProvider client={queryClient}>
+          <SupabaseProvider>
+            <AuthProvider>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <Suspense fallback={<AppSplash message="Starting Oldauta…" />}> 
+                  <RouterProvider router={router} />
+                </Suspense>
+              </TooltipProvider>
+            </AuthProvider>
+          </SupabaseProvider>
+        </QueryClientProvider>
+      </BootGuard>
+    </ErrorBoundary>
+  </StrictMode>
 );
