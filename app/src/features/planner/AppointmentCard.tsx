@@ -3,7 +3,6 @@ import type {
   DraggableProvidedDraggableProps,
   DraggableProvidedDragHandleProps,
 } from "@hello-pangea/dnd";
-import { formatInTimeZone } from "date-fns-tz";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +22,8 @@ import {
 import { cn } from "@/lib/utils";
 import { ResizeHandle } from "./ResizeHandle";
 import type { PlannerStatus } from "./types";
-import { ORG_TIMEZONE, PLANNER_STATUS_LABELS, PLANNER_STATUSES } from "./types";
+import { PLANNER_STATUS_LABELS, PLANNER_STATUSES } from "./types";
+import { formatInOrgTimezone } from "@/lib/timezone";
 
 const cardStyles: Record<PlannerStatus, string> = {
   scheduled: "border-border bg-card",
@@ -91,9 +91,8 @@ export const AppointmentCard = ({
   hasConflict = false,
   conflictMessage,
 }: AppointmentCardProps) => {
-  const timeRange = `${formatInTimeZone(appointment.startsAt, ORG_TIMEZONE, "HH:mm")} – ${formatInTimeZone(
+  const timeRange = `${formatInOrgTimezone(appointment.startsAt, "HH:mm")} – ${formatInOrgTimezone(
     appointment.endsAt,
-    ORG_TIMEZONE,
     "HH:mm"
   )}`;
   const details = [appointment.customerName, appointment.vehicleLabel]

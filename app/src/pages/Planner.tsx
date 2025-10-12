@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { addDays } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
 import { CalendarIcon, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +14,7 @@ import {
 } from "@/features/planner/hooks";
 import { EditAppointmentDrawer } from "@/features/planner/EditAppointmentDrawer";
 import { ORG_TIMEZONE } from "@/features/planner/types";
+import { formatInOrgTimezone } from "@/lib/timezone";
 import { toast } from "@/hooks/use-toast";
 import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
 
@@ -35,7 +35,7 @@ const Planner = () => {
   const isLoading = techniciansQuery.isLoading || appointmentsQuery.isLoading;
   const isMutating = appointmentsQuery.isMutating;
 
-  const dateLabel = formatInTimeZone(selectedDate, ORG_TIMEZONE, "EEEE, MMM d");
+  const dateLabel = formatInOrgTimezone(selectedDate, "EEEE, MMM d");
   const bayOptions = useMemo(() => {
     const bays: PlannerBay[] = baysQuery.data ?? [];
     if (bays.length > 0) {

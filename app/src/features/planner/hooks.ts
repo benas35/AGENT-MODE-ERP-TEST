@@ -1,10 +1,9 @@
 import { useEffect, useMemo } from "react";
-import { addDays, startOfDay } from "date-fns";
-import { formatInTimeZone, utcToZonedTime, zonedTimeToUtc } from "date-fns-tz";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
+import { getOrgDateKey, getOrgDateRange } from "@/lib/timezone";
 import type {
   CanScheduleInput,
   PlannerEditableFields,
@@ -27,14 +26,9 @@ import {
 
 const TECHNICIAN_COLORS = ["#0f172a", "#7c3aed", "#0f766e", "#1d4ed8", "#b45309", "#be123c"];
 
-const getDateKey = (date: Date) => formatInTimeZone(date, ORG_TIMEZONE, "yyyy-MM-dd");
+const getDateKey = (date: Date) => getOrgDateKey(date);
 
-const getDateRange = (date: Date) => {
-  const zoned = utcToZonedTime(date, ORG_TIMEZONE);
-  const start = zonedTimeToUtc(startOfDay(zoned), ORG_TIMEZONE).toISOString();
-  const end = zonedTimeToUtc(addDays(startOfDay(zoned), 1), ORG_TIMEZONE).toISOString();
-  return { start, end };
-};
+const getDateRange = (date: Date) => getOrgDateRange(date);
 
 export const usePlannerTechnicians = () => {
   const { profile } = useAuth();

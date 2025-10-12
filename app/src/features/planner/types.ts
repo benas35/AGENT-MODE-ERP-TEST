@@ -60,7 +60,7 @@ export interface CanScheduleInput {
   appointmentId?: string | null;
 }
 
-export const ORG_TIMEZONE = "Europe/Vilnius";
+export { ORG_TIMEZONE } from "@/lib/timezone";
 export const MIN_SLOT_MINUTES = 15;
 export const DEFAULT_APPOINTMENT_MINUTES = 60;
 

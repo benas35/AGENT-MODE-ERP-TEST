@@ -1,6 +1,6 @@
 import { addMinutes, differenceInMinutes, startOfDay } from "date-fns";
-import { utcToZonedTime, zonedTimeToUtc } from "date-fns-tz";
-import { MIN_SLOT_MINUTES, ORG_TIMEZONE, PlannerAppointment } from "./types";
+import { MIN_SLOT_MINUTES, PlannerAppointment } from "./types";
+import { orgZonedTimeToUtcIso, toOrgZonedTime } from "@/lib/timezone";
 
 export interface BoardWindow {
   start: Date;
@@ -10,9 +10,9 @@ export interface BoardWindow {
 export const minuteHeight = 2;
 
 export const toZoned = (iso: string | Date): Date =>
-  utcToZonedTime(typeof iso === "string" ? new Date(iso) : iso, ORG_TIMEZONE);
+  toOrgZonedTime(typeof iso === "string" ? new Date(iso) : iso);
 
-export const toUtcIso = (date: Date): string => zonedTimeToUtc(date, ORG_TIMEZONE).toISOString();
+export const toUtcIso = (date: Date): string => orgZonedTimeToUtcIso(date);
 
 export const snapMinutes = (minutes: number): number =>
   Math.round(minutes / MIN_SLOT_MINUTES) * MIN_SLOT_MINUTES;

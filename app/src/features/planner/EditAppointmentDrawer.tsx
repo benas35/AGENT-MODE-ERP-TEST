@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo } from "react";
 import { useForm } from "react-hook-form";
-import { formatInTimeZone, zonedTimeToUtc } from "date-fns-tz";
 import { addMinutes } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 
@@ -23,7 +22,8 @@ import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
 import { safeSubmit, schemaResolver, stringNonEmpty, z } from "@/lib/validation";
 
 import type { PlannerAppointment, PlannerEditableFields, PlannerTechnician } from "./types";
-import { ORG_TIMEZONE, PlannerStatus } from "./types";
+import { PlannerStatus } from "./types";
+import { fromOrgLocalInput, toOrgLocalInput } from "@/lib/timezone";
 import type { PlannerBay } from "./hooks";
 
 const statusValues = ["scheduled", "in_progress", "waiting_parts", "completed"] as const satisfies PlannerStatus[];
@@ -81,9 +81,9 @@ type AppointmentFormValues = z.infer<typeof appointmentSchema> & {
   notes: string | undefined;
 };
 
-const formatLocalInput = (iso: string) => formatInTimeZone(iso, ORG_TIMEZONE, "yyyy-MM-dd'T'HH:mm");
+const formatLocalInput = (iso: string) => toOrgLocalInput(iso);
 
-const toUtcIso = (local: string) => zonedTimeToUtc(local, ORG_TIMEZONE).toISOString();
+const toUtcIso = (local: string) => fromOrgLocalInput(local);
 
 const getStatusLabel = (status: PlannerStatus) =>
   status

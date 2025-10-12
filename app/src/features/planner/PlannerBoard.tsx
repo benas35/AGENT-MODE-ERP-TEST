@@ -8,11 +8,11 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { addMinutes, differenceInMinutes, format, isSameDay } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
+import { formatInOrgTimezone } from "@/lib/timezone";
 import {
   type CanScheduleInput,
   type PlannerAppointment,
@@ -20,7 +20,6 @@ import {
   type PlannerResizePayload,
   type PlannerStatus,
   type PlannerTechnician,
-  ORG_TIMEZONE,
   DEFAULT_APPOINTMENT_MINUTES,
   MIN_SLOT_MINUTES,
 } from "./types";
@@ -420,13 +419,11 @@ export const PlannerBoard = ({
             differenceInMinutes(end, start)
           );
           const suggestionText = suggestionStart
-            ? `Next open window: ${formatInTimeZone(
+            ? `Next open window: ${formatInOrgTimezone(
                 suggestionStart,
-                ORG_TIMEZONE,
                 "HH:mm"
-              )} – ${formatInTimeZone(
+              )} – ${formatInOrgTimezone(
                 addMinutes(suggestionStart, durationMinutes),
-                ORG_TIMEZONE,
                 "HH:mm"
               )}`
             : null;
@@ -565,13 +562,11 @@ export const PlannerBoard = ({
                 differenceInMinutes(finalEnd, finalStart)
               );
               const suggestionText = suggestionStart
-                ? `Next open window: ${formatInTimeZone(
+                ? `Next open window: ${formatInOrgTimezone(
                     suggestionStart,
-                    ORG_TIMEZONE,
                     "HH:mm"
-                  )} – ${formatInTimeZone(
+                  )} – ${formatInOrgTimezone(
                     addMinutes(suggestionStart, durationMinutes),
-                    ORG_TIMEZONE,
                     "HH:mm"
                   )}`
                 : null;
