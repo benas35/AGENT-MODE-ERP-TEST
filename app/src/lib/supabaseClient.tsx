@@ -44,11 +44,47 @@ function resolveWithAliases(key: RequiredSupabaseKey, env: EnvShape) {
   return undefined;
 }
 
+const SUPABASE_ENV_FALLBACK: Partial<Record<RequiredSupabaseKey, string>> = {};
+
+function applyFallback(
+  overrides: Partial<Record<RequiredSupabaseKey, string>> | null
+): Partial<Record<RequiredSupabaseKey, string>> {
+  return {
+    VITE_SUPABASE_URL: overrides?.VITE_SUPABASE_URL,
+    VITE_SUPABASE_ANON_KEY: overrides?.VITE_SUPABASE_ANON_KEY,
+  };
+}
+
+export function setSupabaseEnvFallback(
+  overrides: Partial<Record<RequiredSupabaseKey, string>> | null
+) {
+  const next = applyFallback(overrides);
+  const prev = applyFallback(SUPABASE_ENV_FALLBACK);
+
+  const didChange =
+    prev.VITE_SUPABASE_URL !== next.VITE_SUPABASE_URL ||
+    prev.VITE_SUPABASE_ANON_KEY !== next.VITE_SUPABASE_ANON_KEY;
+
+  SUPABASE_ENV_FALLBACK.VITE_SUPABASE_URL = next.VITE_SUPABASE_URL;
+  SUPABASE_ENV_FALLBACK.VITE_SUPABASE_ANON_KEY = next.VITE_SUPABASE_ANON_KEY;
+
+  if (didChange) {
+    resetSupabaseClient();
+  }
+}
+
 export function collectMissingSupabaseEnv(env: EnvShape = import.meta.env): RequiredSupabaseKey[] {
   return REQUIRED_SUPABASE_ENV_KEYS.filter((key) => !resolveWithAliases(key, env));
 }
 
 function resolveSupabaseUrl(env: EnvShape = import.meta.env) {
+  return resolveWithAliases("VITE_SUPABASE_URL", env) ?? SUPABASE_ENV_FALLBACK.VITE_SUPABASE_URL;
+}
+
+function resolveSupabaseAnonKey(env: EnvShape = import.meta.env) {
+  return (
+    resolveWithAliases("VITE_SUPABASE_ANON_KEY", env) ?? SUPABASE_ENV_FALLBACK.VITE_SUPABASE_ANON_KEY
+  );
   return resolveWithAliases("VITE_SUPABASE_URL", env);
 }
 
@@ -70,6 +106,11 @@ export function ensureSupabaseClient(): SupabaseClient<Database> {
   }
 
   const missing = collectMissingSupabaseEnv();
+  const hasFallback = Boolean(
+    SUPABASE_ENV_FALLBACK.VITE_SUPABASE_URL && SUPABASE_ENV_FALLBACK.VITE_SUPABASE_ANON_KEY
+  );
+
+  if (missing.length > 0 && !hasFallback) {
   if (missing.length > 0) {
     throw new SupabaseConfigError(missing);
   }
