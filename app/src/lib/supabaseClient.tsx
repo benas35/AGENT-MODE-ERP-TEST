@@ -85,6 +85,11 @@ function resolveSupabaseAnonKey(env: EnvShape = import.meta.env) {
   return (
     resolveWithAliases("VITE_SUPABASE_ANON_KEY", env) ?? SUPABASE_ENV_FALLBACK.VITE_SUPABASE_ANON_KEY
   );
+  return resolveWithAliases("VITE_SUPABASE_URL", env);
+}
+
+function resolveSupabaseAnonKey(env: EnvShape = import.meta.env) {
+  return resolveWithAliases("VITE_SUPABASE_ANON_KEY", env);
 }
 
 export class SupabaseConfigError extends Error {
@@ -106,6 +111,7 @@ export function ensureSupabaseClient(): SupabaseClient<Database> {
   );
 
   if (missing.length > 0 && !hasFallback) {
+  if (missing.length > 0) {
     throw new SupabaseConfigError(missing);
   }
 
