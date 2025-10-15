@@ -6,6 +6,9 @@
     "paths": {
       "@/*": ["./app/src/*"]
     },
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
     "noImplicitAny": false,
     "noUnusedParameters": false,
     "skipLibCheck": true,

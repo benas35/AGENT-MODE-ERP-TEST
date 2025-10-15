@@ -1,105 +1,120 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  collectMissingSupabaseEnv,
-  ensureSupabaseClient,
-  resetSupabaseClient,
-  SupabaseConfigError,
-} from "../supabaseClient";
 
-const originalUrl = import.meta.env.VITE_SUPABASE_URL;
-const originalAnon = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const originalLegacy = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const originalSupabaseUrl = import.meta.env.SUPABASE_URL as string | undefined;
-const originalSupabaseAnon = import.meta.env.SUPABASE_ANON_KEY as string | undefined;
+const createClientMock = vi.fn(() => ({ marker: Symbol("client") }));
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: createClientMock,
+}));
+
+const originalEnv = { ...import.meta.env } as Record<string, string | undefined>;
+
+function getEnv() {
+  return import.meta.env as Record<string, string | undefined>;
+}
 
 afterEach(() => {
-  resetSupabaseClient();
-  vi.unstubAllEnvs();
-  if (originalUrl) {
-    vi.stubEnv("VITE_SUPABASE_URL", originalUrl);
+  createClientMock.mockClear();
+  const env = getEnv();
+
+  for (const key of Object.keys(env)) {
+    if (!(key in originalEnv)) {
+      Reflect.deleteProperty(env, key);
+    }
   }
-  if (originalAnon) {
-    vi.stubEnv("VITE_SUPABASE_ANON_KEY", originalAnon);
-  }
-  if (originalLegacy) {
-    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", originalLegacy);
-  }
-  if (originalSupabaseUrl) {
-    vi.stubEnv("SUPABASE_URL", originalSupabaseUrl);
-  }
-  if (originalSupabaseAnon) {
-    vi.stubEnv("SUPABASE_ANON_KEY", originalSupabaseAnon);
+
+  for (const [key, value] of Object.entries(originalEnv)) {
+    env[key] = value;
   }
 });
 
-describe("collectMissingSupabaseEnv", () => {
-  it("returns missing keys", () => {
-    const missing = collectMissingSupabaseEnv({ VITE_SUPABASE_URL: "", VITE_SUPABASE_ANON_KEY: undefined } as any);
-    expect(missing).toEqual(["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"]);
+describe("getSupabaseClient", () => {
+  it("throws when required environment variables are missing", async () => {
+    vi.resetModules();
+    const env = getEnv();
+    env.VITE_SUPABASE_URL = "";
+    env.VITE_SUPABASE_ANON_KEY = "";
+
+    const module = await import("../supabaseClient");
+
+    expect(() => module.getSupabaseClient()).toThrowError(
+      "Supabase URL/Anon key missing",
+    );
+    expect(createClientMock).not.toHaveBeenCalled();
   });
 
-  it("returns empty array when all present", () => {
-    const missing = collectMissingSupabaseEnv({
-      VITE_SUPABASE_URL: "https://example.supabase.co",
-      VITE_SUPABASE_ANON_KEY: "anon",
-    } as any);
-    expect(missing).toEqual([]);
+  it("creates and caches a Supabase client when env is configured", async () => {
+    vi.resetModules();
+    const env = getEnv();
+    env.VITE_SUPABASE_URL = "https://example.supabase.co";
+    env.VITE_SUPABASE_ANON_KEY = "anon-key";
+
+    const module = await import("../supabaseClient");
+
+    const first = module.getSupabaseClient();
+    const second = module.getSupabaseClient();
+
+    expect(first).toBe(second);
+    expect(createClientMock).toHaveBeenCalledTimes(1);
+    expect(createClientMock).toHaveBeenCalledWith(
+      "https://example.supabase.co",
+      "anon-key",
+      { auth: { persistSession: true, autoRefreshToken: true } },
+    );
   });
 
-  it("treats legacy publishable key as satisfying anon key", () => {
-    const missing = collectMissingSupabaseEnv({
-      VITE_SUPABASE_URL: "https://example.supabase.co",
-      VITE_SUPABASE_PUBLISHABLE_KEY: "legacy-key",
-    } as any);
+  it("falls back to SUPABASE_URL and SUPABASE_ANON_KEY when vite env vars are missing", async () => {
+    vi.resetModules();
+    const env = getEnv();
+    Reflect.deleteProperty(env, "VITE_SUPABASE_URL");
+    Reflect.deleteProperty(env, "VITE_SUPABASE_ANON_KEY");
+    env.SUPABASE_URL = "https://fallback.supabase.co";
+    env.SUPABASE_ANON_KEY = "fallback-anon";
 
-    expect(missing).toEqual([]);
+    const module = await import("../supabaseClient");
+
+    module.getSupabaseClient();
+
+    expect(createClientMock).toHaveBeenCalledWith(
+      "https://fallback.supabase.co",
+      "fallback-anon",
+      { auth: { persistSession: true, autoRefreshToken: true } },
+    );
   });
 
-  it("accepts SUPABASE_URL and SUPABASE_ANON_KEY fallbacks", () => {
-    const missing = collectMissingSupabaseEnv({
-      SUPABASE_URL: "https://example.supabase.co",
-      SUPABASE_ANON_KEY: "anon",
-    } as any);
+  it("uses VITE_SUPABASE_PUBLISHABLE_KEY as a final anon key fallback", async () => {
+    vi.resetModules();
+    const env = getEnv();
+    env.VITE_SUPABASE_URL = "https://example.supabase.co";
+    Reflect.deleteProperty(env, "VITE_SUPABASE_ANON_KEY");
+    Reflect.deleteProperty(env, "SUPABASE_ANON_KEY");
+    env.VITE_SUPABASE_PUBLISHABLE_KEY = "publishable-key";
 
-    expect(missing).toEqual([]);
+    const module = await import("../supabaseClient");
+
+    module.getSupabaseClient();
+
+    expect(createClientMock).toHaveBeenCalledWith(
+      "https://example.supabase.co",
+      "publishable-key",
+      { auth: { persistSession: true, autoRefreshToken: true } },
+    );
   });
 });
 
-describe("ensureSupabaseClient", () => {
-  it("throws when environment variables are missing", () => {
-    vi.stubEnv("VITE_SUPABASE_URL", "");
-    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+describe("resetSupabaseClient", () => {
+  it("clears the cached client", async () => {
+    vi.resetModules();
+    const env = getEnv();
+    env.VITE_SUPABASE_URL = "https://example.supabase.co";
+    env.VITE_SUPABASE_ANON_KEY = "anon-key";
 
-    expect(() => ensureSupabaseClient()).toThrow(SupabaseConfigError);
-  });
+    const module = await import("../supabaseClient");
 
-  it("creates a singleton Supabase client when env is configured", () => {
-    vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
-    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "test-anon-key");
+    const first = module.getSupabaseClient();
+    module.resetSupabaseClient();
+    const second = module.getSupabaseClient();
 
-    const client = ensureSupabaseClient();
-    const second = ensureSupabaseClient();
-
-    expect(client).toBe(second);
-    expect(typeof client).toBe("object");
-  });
-
-  it("uses legacy publishable key when anon key is missing", () => {
-    vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
-    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
-    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "legacy-key");
-
-    const client = ensureSupabaseClient();
-    expect(client).toBeDefined();
-  });
-
-  it("creates client from SUPABASE_URL + SUPABASE_ANON_KEY fallbacks", () => {
-    vi.stubEnv("VITE_SUPABASE_URL", "");
-    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
-    vi.stubEnv("SUPABASE_URL", "https://fallback.supabase.co");
-    vi.stubEnv("SUPABASE_ANON_KEY", "fallback-anon");
-
-    const client = ensureSupabaseClient();
-    expect(client).toBeDefined();
+    expect(first).not.toBe(second);
+    expect(createClientMock).toHaveBeenCalledTimes(2);
   });
 });
