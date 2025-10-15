@@ -6,7 +6,6 @@ import { ErrorBoundary } from "./app/ErrorBoundary";
 import { BootGuard } from "./app/BootGuard";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient";
-import { SupabaseProvider } from "./lib/supabaseClient";
 import { AuthProvider } from "./hooks/useAuth";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
@@ -25,8 +24,7 @@ createRoot(rootElement).render(
     <ErrorBoundary>
       <BootGuard>
         <QueryClientProvider client={queryClient}>
-          <SupabaseProvider>
-            <AuthProvider>
+          <AuthProvider>
               <TooltipProvider>
                 <Toaster />
                 <Sonner />
@@ -35,7 +33,6 @@ createRoot(rootElement).render(
                 </Suspense>
               </TooltipProvider>
             </AuthProvider>
-          </SupabaseProvider>
         </QueryClientProvider>
       </BootGuard>
     </ErrorBoundary>
