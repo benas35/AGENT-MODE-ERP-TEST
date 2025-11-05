@@ -11,7 +11,7 @@ import { addMinutes, differenceInMinutes, format, isSameDay } from "date-fns";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
+import { mapErrorToFriendlyMessage, type FriendlyErrorMessage } from "@/lib/errorHandling";
 import { formatInOrgTimezone } from "@/lib/timezone";
 import {
   type CanScheduleInput,
@@ -25,6 +25,8 @@ import {
 } from "./types";
 import { AppointmentCard } from "./AppointmentCard";
 import { getBoardWindow, minuteHeight, pixelsToTime, timeToPixels, toUtcIso, toZoned } from "./utils";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface PlannerBoardProps {
   date: Date;
@@ -62,6 +64,24 @@ const technicianPalette = [
 
 const clampDate = (value: Date, min: Date, max: Date) =>
   new Date(Math.min(Math.max(value.getTime(), min.getTime()), max.getTime()));
+
+const isFriendlyErrorMessage = (value: unknown): value is FriendlyErrorMessage => {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "title" in value &&
+      typeof (value as { title?: unknown }).title === "string" &&
+      "description" in value &&
+      typeof (value as { description?: unknown }).description === "string"
+  );
+};
+
+const resolveFriendlyError = (error: unknown, context: string): FriendlyErrorMessage => {
+  if (isFriendlyErrorMessage(error)) {
+    return error;
+  }
+  return mapErrorToFriendlyMessage(error, context);
+};
 
 export const PlannerBoard = ({
   date,
@@ -345,7 +365,7 @@ export const PlannerBoard = ({
       try {
         await onStatusChange({ id, status });
       } catch (error) {
-        const friendly = mapErrorToFriendlyMessage(error, "updating the status");
+        const friendly = resolveFriendlyError(error, "updating the status");
         toast({ title: friendly.title, description: friendly.description, variant: "destructive" });
       }
     },
@@ -439,11 +459,8 @@ export const PlannerBoard = ({
 
         await onAppointmentMove(payload);
       } catch (error) {
-        toast({
-          title: "Move failed",
-          description: mapErrorToFriendlyMessage(error),
-          variant: "destructive",
-        });
+        const friendly = resolveFriendlyError(error, "moving the appointment");
+        toast({ title: friendly.title, description: friendly.description, variant: "destructive" });
       } finally {
         clearOptimistic(draggableId);
         destinationLane.current = null;
@@ -582,11 +599,8 @@ export const PlannerBoard = ({
 
             await onAppointmentResize(payload);
           } catch (error) {
-            toast({
-              title: "Resize failed",
-              description: mapErrorToFriendlyMessage(error),
-              variant: "destructive",
-            });
+            const friendly = resolveFriendlyError(error, "resizing the appointment");
+            toast({ title: friendly.title, description: friendly.description, variant: "destructive" });
           } finally {
             clearOptimistic(id);
           }
@@ -654,17 +668,27 @@ export const PlannerBoard = ({
   );
 
   if (isLoading) {
+    const skeletonColumns = Math.max(technicians.length || 0, 3);
     return (
-      <div className="flex h-full items-center justify-center rounded-lg border border-dashed">
-        <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-transparent" />
-          Loading planner…
+      <div className="flex h-full flex-col gap-6 rounded-lg border border-dashed p-6" role="status" aria-live="polite">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-3 w-64" />
         </div>
+        <div className="flex flex-1 gap-4 overflow-hidden">
+          {Array.from({ length: skeletonColumns }).map((_, index) => (
+            <div key={index} className="flex w-full min-w-[240px] flex-col gap-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-full min-h-[200px] w-full" />
+            </div>
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground">Loading planner…</span>
       </div>
     );
   }
 
-  if (technicians.length === 0 && columns[0].appointments.length === 0) {
+  if (technicians.length === 0 && columns[0]?.appointments.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed text-center">
         <AlertCircle className="h-8 w-8 text-muted-foreground" aria-hidden />
@@ -674,6 +698,32 @@ export const PlannerBoard = ({
             Add technicians to your organisation to start scheduling appointments.
           </p>
         </div>
+      </div>
+    );
+  }
+
+  const hasAppointments = columns.some((column) => column.appointments.length > 0);
+
+  const handleCreateFromEmptyState = () => {
+    if (!onSlotCreate) return;
+    const startsAt = toUtcIso(boardWindow.start);
+    const endsAt = toUtcIso(addMinutes(boardWindow.start, DEFAULT_APPOINTMENT_MINUTES));
+    onSlotCreate({ technicianId: null, bayId: activeBayId ?? null, startsAt, endsAt });
+  };
+
+  if (!hasAppointments) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 rounded-lg border border-dashed text-center">
+        <AlertCircle className="h-8 w-8 text-muted-foreground" aria-hidden />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">No appointments scheduled yet</p>
+          <p className="text-sm text-muted-foreground">Create your first appointment to populate the planner.</p>
+        </div>
+        {onSlotCreate ? (
+          <Button size="sm" onClick={handleCreateFromEmptyState}>
+            Create appointment
+          </Button>
+        ) : null}
       </div>
     );
   }

@@ -80,9 +80,20 @@ npm run dev
    ```
 4. Restart `npm run dev` after editing the file so Vite picks up the new variables. Once the values are provided, the BootGuard banner disappears and the app loads normally.
 
+### Deploy Setup
+
+1. Copy `.env.production.example` to your hosting environment variables and provide the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` values from Supabase **Settings → API**.
+2. When deploying to Netlify or Vercel, ensure the build command is `npm run build` and the publish directory is `app/dist`.
+3. In Supabase → **Auth → URL Configuration** configure the following:
+   - **Site URL:** `https://YOUR-PROD-DOMAIN`
+   - **Redirect URLs:** add both `https://YOUR-PROD-DOMAIN` and `http://localhost:5173`
+   - **Allowed Origins (CORS):** add both domains
+   > Magic links and OTP sign-ins will fail without the entries above.
+4. After deployment, verify `https://YOUR-PROD-DOMAIN/health` responds with `OK` and that refreshing deep links such as `/planner` succeeds.
+
 ### Local Boot & Auth Diagnostics
 
-- `BootGuard` (`app/src/app/BootGuard.tsx`) blocks rendering and shows a red panel if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` are missing. Existing environments that still use `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, or `SUPABASE_ANON_KEY` are recognised automatically but should migrate to the `VITE_` names when convenient.
+- `BootGuard` (`app/src/app/BootGuard.tsx`) blocks rendering and shows a red panel if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` are missing.
 - Supabase auth relies on the browser client in `app/src/lib/supabaseClient.ts`; sessions persist locally with `persistSession: true`.
 - Add `http://localhost:5173` to Supabase **Auth → URL Configuration** (Redirect URLs and Additional Origins) so password and magic-link flows complete in dev.
 - The planner shell wraps routes with `AuthGate` to render the sign-in experience when no session is available.

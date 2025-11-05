@@ -109,7 +109,7 @@ export function DefaultErrorFallback({ error, reset, name }: DefaultErrorFallbac
             </div>
             <div className="flex flex-wrap gap-3">
               <Button onClick={reset}>{"Try again"}</Button>
-              <Button variant="outline" onClick={() => window.location.reload()}>Reload page</Button>
+              <Button variant="outline" onClick={() => window.location.reload()}>Reload</Button>
             </div>
             {import.meta.env.DEV && error?.message && (
               <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">

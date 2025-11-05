@@ -34,9 +34,9 @@ export const usePlannerTechnicians = () => {
   const { profile } = useAuth();
   const orgId = profile?.org_id;
 
-  return useQuery<PlannerTechnician[]>({
+  const query = useQuery<PlannerTechnician[]>({
     enabled: Boolean(orgId),
-    queryKey: ["planner", "technicians", orgId],
+    queryKey: ["planner", "technicians", orgId ?? "anonymous"],
     queryFn: async () => {
       if (!orgId) return [];
       const { data, error } = await supabase
@@ -69,9 +69,15 @@ export const usePlannerTechnicians = () => {
         } satisfies PlannerTechnician;
       });
     },
-    retry: 1,
     staleTime: 5 * 60 * 1000,
   });
+
+  return {
+    ...query,
+    data: query.data ?? [],
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+  };
 };
 
 interface UsePlannerAppointmentsOptions {
@@ -87,9 +93,9 @@ export const usePlannerBays = () => {
   const { profile } = useAuth();
   const orgId = profile?.org_id;
 
-  return useQuery<PlannerBay[]>({
+  const query = useQuery<PlannerBay[]>({
     enabled: Boolean(orgId),
-    queryKey: ["planner", "bays", orgId],
+    queryKey: ["planner", "bays", orgId ?? "anonymous"],
     queryFn: async () => {
       if (!orgId) return [];
 
@@ -107,6 +113,13 @@ export const usePlannerBays = () => {
     },
     staleTime: 5 * 60 * 1000,
   });
+
+  return {
+    ...query,
+    data: query.data ?? [],
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+  };
 };
 
 export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmentsOptions = {}) => {
@@ -116,7 +129,15 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
   const queryClient = useQueryClient();
   const dateKey = getDateKey(date);
   const range = useMemo(() => getDateRange(date), [date]);
-  const queryKey = ["planner", "appointments", orgId, dateKey, bayId ?? "all"] as const;
+  const queryKey = [
+    "planner",
+    "appointments",
+    orgId ?? "anonymous",
+    dateKey,
+    range.start,
+    range.end,
+    bayId ?? "all",
+  ] as const;
 
   const selectColumns = `
     id, title, technician_id, bay_id, status, starts_at, ends_at, notes, priority, customer_id, vehicle_id,
@@ -186,8 +207,21 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       return;
     }
 
+    const channelName = `planner-appointments-${orgId}-${dateKey}`;
+
+    if (typeof supabase.getChannels === "function") {
+      for (const existing of supabase.getChannels()) {
+        if (existing.topic === channelName || ("name" in existing && (existing as { name?: string }).name === channelName)) {
+          void existing.unsubscribe();
+          if (typeof supabase.removeChannel === "function") {
+            supabase.removeChannel(existing);
+          }
+        }
+      }
+    }
+
     const channel = supabase
-      .channel(`planner-appointments-${orgId}-${dateKey}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "appointments", filter: `org_id=eq.${orgId}` },
@@ -199,6 +233,9 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
 
     return () => {
       void channel.unsubscribe();
+      if (typeof supabase.removeChannel === "function") {
+        supabase.removeChannel(channel);
+      }
     };
   }, [dateKey, orgId, queryClient, queryKey]);
 
@@ -453,42 +490,45 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       try {
         await moveMutation.mutateAsync(payload);
       } catch (error) {
-        throw new Error(mapErrorToFriendlyMessage(error));
+        throw mapErrorToFriendlyMessage(error, "moving the appointment");
       }
     },
     resizeAppointment: async (payload: PlannerResizePayload) => {
       try {
         await resizeMutation.mutateAsync(payload);
       } catch (error) {
-        throw new Error(mapErrorToFriendlyMessage(error));
+        throw mapErrorToFriendlyMessage(error, "resizing the appointment");
       }
     },
     createAppointment: async (payload: PlannerEditableFields) => {
       try {
         await createMutation.mutateAsync(payload);
       } catch (error) {
-        throw new Error(mapErrorToFriendlyMessage(error));
+        throw mapErrorToFriendlyMessage(error, "creating the appointment");
       }
     },
     updateAppointment: async (payload: PlannerUpdatePayload) => {
       try {
         await updateMutation.mutateAsync(payload);
       } catch (error) {
-        throw new Error(mapErrorToFriendlyMessage(error));
+        throw mapErrorToFriendlyMessage(error, "updating the appointment");
       }
     },
     updateStatus: async (id: string, status: PlannerStatus) => {
       try {
         await statusMutation.mutateAsync({ id, status });
       } catch (error) {
-        if (error instanceof Error) {
-          throw error;
-        }
-        const friendly = mapErrorToFriendlyMessage(error);
-        throw new Error(friendly.description);
+        throw mapErrorToFriendlyMessage(error, "updating the status");
       }
     },
-    canSchedule,
+    canSchedule: async (input: CanScheduleInput) => {
+      try {
+        return await canSchedule(input);
+      } catch (error) {
+        const friendly = mapErrorToFriendlyMessage(error, "checking availability");
+        throw friendly;
+      }
+    },
     refetch: query.refetch,
     isMutating:
       moveMutation.isPending ||

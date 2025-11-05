@@ -6,7 +6,7 @@ import { ErrorBoundary } from "./app/ErrorBoundary";
 import { BootGuard } from "./app/BootGuard";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient";
-import { SupabaseProvider } from "./lib/supabaseClient";
+import { SupabaseProvider } from "@/integrations/supabase/SupabaseProvider";
 import { AuthProvider } from "./hooks/useAuth";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
@@ -22,22 +22,22 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ErrorBoundary>
-      <BootGuard>
-        <QueryClientProvider client={queryClient}>
-          <SupabaseProvider>
-            <AuthProvider>
-              <TooltipProvider>
-                <Toaster />
-                <Sonner />
-                <Suspense fallback={<AppSplash message="Starting Oldauta…" />}> 
+    <ErrorBoundary resetKeys={[window.location.pathname]}>
+      <QueryClientProvider client={queryClient}>
+        <BootGuard>
+          <Suspense fallback={<AppSplash />}>
+            <SupabaseProvider>
+              <AuthProvider>
+                <TooltipProvider>
+                  <Toaster />
+                  <Sonner />
                   <RouterProvider router={router} />
-                </Suspense>
-              </TooltipProvider>
-            </AuthProvider>
-          </SupabaseProvider>
-        </QueryClientProvider>
-      </BootGuard>
+                </TooltipProvider>
+              </AuthProvider>
+            </SupabaseProvider>
+          </Suspense>
+        </BootGuard>
+      </QueryClientProvider>
     </ErrorBoundary>
   </StrictMode>
 );
