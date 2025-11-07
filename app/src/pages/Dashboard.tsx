@@ -1,10 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { 
-  Calendar, 
-  Car, 
-  DollarSign, 
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Calendar,
+  Car,
+  DollarSign,
   Clock,
   Users,
   Wrench,
@@ -13,40 +15,151 @@ import {
   CheckCircle2,
   Timer
 } from "lucide-react";
-import { mockWorkOrders, mockCustomers, mockVehicles, mockTechnicians, getWorkOrdersByStatus, getCustomerById, getVehicleById, getTechnicianById } from "@/data/mockData";
+import { useDashboardData } from "@/hooks/useDashboardData";
 
-const statusColors = {
-  'scheduled': 'bg-status-scheduled',
-  'in-progress': 'bg-status-in-progress', 
-  'waiting-parts': 'bg-status-waiting',
-  'ready': 'bg-status-ready',
-  'completed': 'bg-status-completed'
+type StatusKey =
+  | "DRAFT"
+  | "SCHEDULED"
+  | "IN_PROGRESS"
+  | "WAITING_PARTS"
+  | "READY"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "UNKNOWN";
+
+const statusConfig: Record<StatusKey, { label: string; color: string }> = {
+  DRAFT: { label: "Draft", color: "bg-muted text-muted-foreground" },
+  SCHEDULED: { label: "Scheduled", color: "bg-status-scheduled text-white" },
+  IN_PROGRESS: { label: "In Progress", color: "bg-status-in-progress text-white" },
+  WAITING_PARTS: { label: "Waiting Parts", color: "bg-status-waiting text-white" },
+  READY: { label: "Ready", color: "bg-status-ready text-white" },
+  COMPLETED: { label: "Completed", color: "bg-status-completed text-white" },
+  CANCELLED: { label: "Cancelled", color: "bg-muted text-muted-foreground" },
+  UNKNOWN: { label: "Unknown", color: "bg-muted text-muted-foreground" },
 };
 
-const statusLabels = {
-  'scheduled': 'Scheduled',
-  'in-progress': 'In Progress',
-  'waiting-parts': 'Waiting Parts', 
-  'ready': 'Ready',
-  'completed': 'Completed'
-};
+const toTitleCase = (value: string) => value.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 
 export default function Dashboard() {
-  const todayWorkOrders = mockWorkOrders.filter(wo => {
-    const today = new Date().toDateString();
-    const woDate = new Date(wo.createdAt).toDateString();
-    return today === woDate;
-  });
+  const { workOrders, technicians, metrics, loading, error } = useDashboardData();
 
-  const wipValue = mockWorkOrders
-    .filter(wo => wo.status === 'in-progress')
-    .reduce((sum, wo) => sum + wo.total, 0);
+  const renderActiveWorkOrders = () => {
+    if (loading) {
+      return (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, index) => (
+            <div key={`workorder-skeleton-${index}`} className="p-3 border rounded-lg">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-4 w-full mt-2" />
+              <Skeleton className="h-4 w-32 mt-2" />
+            </div>
+          ))}
+        </div>
+      );
+    }
 
-  const averageRepairOrder = mockWorkOrders.length > 0 
-    ? mockWorkOrders.reduce((sum, wo) => sum + wo.total, 0) / mockWorkOrders.length 
-    : 0;
+    if (!workOrders.length) {
+      return <p className="text-sm text-muted-foreground">No work orders available.</p>;
+    }
 
-  const busyTechnicians = mockTechnicians.filter(t => t.status === 'busy').length;
+    return (
+      <div className="space-y-4">
+        {workOrders.slice(0, 5).map((workOrder) => {
+          const status = (workOrder.status ?? "UNKNOWN") as StatusKey;
+          const config = statusConfig[status] ?? statusConfig.UNKNOWN;
+          const customerName = workOrder.customer
+            ? `${workOrder.customer.first_name} ${workOrder.customer.last_name}`
+            : "Unknown Customer";
+          const vehicleInfo = workOrder.vehicle
+            ? `${workOrder.vehicle.year ?? ""} ${workOrder.vehicle.make} ${workOrder.vehicle.model}`.trim()
+            : "Vehicle not assigned";
+          const technicianMeta = workOrder.technician?.meta as Record<string, unknown> | null | undefined;
+          const technicianName =
+            workOrder.technician?.name ??
+            (typeof technicianMeta?.display_name === "string" ? technicianMeta.display_name : "Unassigned");
+
+          return (
+            <div key={workOrder.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{workOrder.work_order_number}</span>
+                  <Badge variant="secondary" className={config.color}>
+                    {config.label}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {customerName} - {vehicleInfo}
+                </p>
+                <p className="text-sm font-medium">{workOrder.title || "Untitled Work Order"}</p>
+                <p className="text-xs text-muted-foreground">Assigned to: {technicianName}</p>
+              </div>
+              <div className="text-right">
+                <p className="font-medium">
+                  ${typeof workOrder.total === "number" ? workOrder.total.toLocaleString() : "0"}
+                </p>
+                {workOrder.estimated_hours && (
+                  <p className="text-xs text-muted-foreground">{workOrder.estimated_hours}h est.</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderTechnicianStatus = () => {
+    if (loading) {
+      return (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, index) => (
+            <div key={`tech-skeleton-${index}`} className="p-3 border rounded-lg">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-4 w-32 mt-2" />
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (!technicians.length) {
+      return <p className="text-sm text-muted-foreground">No technicians are currently active.</p>;
+    }
+
+    return (
+      <div className="space-y-4">
+        {technicians.map((technician) => {
+          const badgeClass =
+            technician.status === "available"
+              ? "bg-success text-success-foreground"
+              : technician.status === "busy"
+                ? "bg-warning text-warning-foreground"
+                : "bg-muted text-muted-foreground";
+
+          return (
+            <div key={technician.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{technician.name}</span>
+                  <Badge variant="secondary" className={badgeClass}>
+                    <div className="flex items-center gap-1">
+                      {technician.status === "available" && <CheckCircle2 className="h-3 w-3" />}
+                      {technician.status === "busy" && <Timer className="h-3 w-3" />}
+                      {technician.status === "off-duty" && <Clock className="h-3 w-3" />}
+                      {toTitleCase(technician.status)}
+                    </div>
+                  </Badge>
+                </div>
+                {technician.specialty && (
+                  <p className="text-sm text-muted-foreground">{technician.specialty}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -62,6 +175,14 @@ export default function Dashboard() {
         </Button>
       </div>
 
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Dashboard data unavailable</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
@@ -70,10 +191,12 @@ export default function Dashboard() {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{todayWorkOrders.length}</div>
-            <p className="text-xs text-muted-foreground">
-              +2 from yesterday
-            </p>
+            {loading ? (
+              <Skeleton className="h-8 w-16" />
+            ) : (
+              <div className="text-2xl font-bold">{metrics.todayWorkOrders}</div>
+            )}
+            <p className="text-xs text-muted-foreground">+2 from yesterday</p>
           </CardContent>
         </Card>
 
@@ -83,10 +206,12 @@ export default function Dashboard() {
             <Car className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{getWorkOrdersByStatus('in-progress').length + getWorkOrdersByStatus('waiting-parts').length}</div>
-            <p className="text-xs text-muted-foreground">
-              Currently being serviced
-            </p>
+            {loading ? (
+              <Skeleton className="h-8 w-16" />
+            ) : (
+              <div className="text-2xl font-bold">{metrics.vehiclesInShop}</div>
+            )}
+            <p className="text-xs text-muted-foreground">Currently being serviced</p>
           </CardContent>
         </Card>
 
@@ -96,10 +221,12 @@ export default function Dashboard() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${wipValue.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              Work in progress
-            </p>
+            {loading ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <div className="text-2xl font-bold">${metrics.wipValue.toLocaleString()}</div>
+            )}
+            <p className="text-xs text-muted-foreground">Work in progress</p>
           </CardContent>
         </Card>
 
@@ -109,10 +236,12 @@ export default function Dashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${averageRepairOrder.toFixed(0)}</div>
-            <p className="text-xs text-muted-foreground">
-              This month's average
-            </p>
+            {loading ? (
+              <Skeleton className="h-8 w-24" />
+            ) : (
+              <div className="text-2xl font-bold">${metrics.averageRepairOrder.toFixed(0)}</div>
+            )}
+            <p className="text-xs text-muted-foreground">This month's average</p>
           </CardContent>
         </Card>
       </div>
@@ -126,120 +255,27 @@ export default function Dashboard() {
               Active Work Orders
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {mockWorkOrders.slice(0, 5).map((workOrder) => {
-                const customer = getCustomerById(workOrder.customerId);
-                const vehicle = getVehicleById(workOrder.vehicleId);
-                const technician = workOrder.technicianId ? getTechnicianById(workOrder.technicianId) : null;
-                
-                return (
-                  <div key={workOrder.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{workOrder.number}</span>
-                        <Badge 
-                          variant="secondary" 
-                          className={`${statusColors[workOrder.status]} text-white`}
-                        >
-                          {statusLabels[workOrder.status]}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {customer?.name} - {vehicle?.year} {vehicle?.make} {vehicle?.model}
-                      </p>
-                      <p className="text-sm font-medium">{workOrder.title}</p>
-                      {technician && (
-                        <p className="text-xs text-muted-foreground">Assigned to: {technician.name}</p>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">${workOrder.total.toLocaleString()}</p>
-                      <p className="text-xs text-muted-foreground">{workOrder.estimatedHours}h est.</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
+          <CardContent>{renderActiveWorkOrders()}</CardContent>
         </Card>
 
         {/* Technician Status */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Technician Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {mockTechnicians.map((technician) => (
-                <div key={technician.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{technician.name}</span>
-                      <Badge 
-                        variant={technician.status === 'available' ? 'default' : technician.status === 'busy' ? 'secondary' : 'outline'}
-                        className={
-                          technician.status === 'available' ? 'bg-success text-success-foreground' :
-                          technician.status === 'busy' ? 'bg-warning text-warning-foreground' :
-                          'bg-muted text-muted-foreground'
-                        }
-                      >
-                        <div className="flex items-center gap-1">
-                          {technician.status === 'available' && <CheckCircle2 className="h-3 w-3" />}
-                          {technician.status === 'busy' && <Timer className="h-3 w-3" />}
-                          {technician.status === 'off-duty' && <Clock className="h-3 w-3" />}
-                          {technician.status.charAt(0).toUpperCase() + technician.status.slice(1).replace('-', ' ')}
-                        </div>
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{technician.specialty}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium">${technician.hourlyRate}/hr</p>
-                    {technician.status === 'busy' && (
-                      <p className="text-xs text-muted-foreground">Currently working</p>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Technician Status
+              </CardTitle>
+              {!loading && (
+                <Badge variant="outline" className="text-xs">
+                  {metrics.busyTechnicians} busy
+                </Badge>
+              )}
             </div>
-          </CardContent>
+          </CardHeader>
+          <CardContent>{renderTechnicianStatus()}</CardContent>
         </Card>
       </div>
-
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 p-2 text-sm">
-              <div className="w-2 h-2 bg-success rounded-full"></div>
-              <span className="text-muted-foreground">10:30 AM</span>
-              <span>Work Order <strong>WO-2024-004</strong> marked as ready for pickup</span>
-            </div>
-            <div className="flex items-center gap-3 p-2 text-sm">
-              <div className="w-2 h-2 bg-status-in-progress rounded-full"></div>
-              <span className="text-muted-foreground">09:15 AM</span>
-              <span>Carlos Rodriguez started work on <strong>WO-2024-001</strong></span>
-            </div>
-            <div className="flex items-center gap-3 p-2 text-sm">
-              <div className="w-2 h-2 bg-primary rounded-full"></div>
-              <span className="text-muted-foreground">08:45 AM</span>
-              <span>New customer <strong>John Smith</strong> added to system</span>
-            </div>
-            <div className="flex items-center gap-3 p-2 text-sm">
-              <div className="w-2 h-2 bg-warning rounded-full"></div>
-              <span className="text-muted-foreground">08:20 AM</span>
-              <span>Low inventory alert: <strong>Semi-Metallic Brake Pads</strong></span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

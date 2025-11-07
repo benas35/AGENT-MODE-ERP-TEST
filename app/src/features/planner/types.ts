@@ -20,6 +20,7 @@ export interface PlannerTechnician {
   color: string;
   userId: string | null;
   skills: string[];
+  resourceId: string | null;
 }
 
 export interface PlannerAppointment {

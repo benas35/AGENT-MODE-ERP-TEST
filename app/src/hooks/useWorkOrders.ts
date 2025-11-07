@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-interface WorkOrder {
+export interface WorkOrder {
   id: string;
   work_order_number: string;
   title?: string;
