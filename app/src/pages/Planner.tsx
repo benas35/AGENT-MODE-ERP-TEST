@@ -16,12 +16,23 @@ import { EditAppointmentDrawer } from "@/features/planner/EditAppointmentDrawer"
 import { ORG_TIMEZONE } from "@/features/planner/types";
 import { formatInOrgTimezone } from "@/lib/timezone";
 import { toast } from "@/hooks/use-toast";
-import { mapErrorToFriendlyMessage } from "@/lib/errorHandling";
+import { mapErrorToFriendlyMessage, type FriendlyErrorMessage } from "@/lib/errorHandling";
 
 type DrawerState =
   | { mode: "closed" }
   | { mode: "create"; technicianId: string | null; bayId: string | null; startsAt: string; endsAt: string }
   | { mode: "edit"; appointmentId: string };
+
+const isFriendlyErrorMessage = (value: unknown): value is FriendlyErrorMessage => {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "title" in value &&
+      typeof (value as { title?: unknown }).title === "string" &&
+      "description" in value &&
+      typeof (value as { description?: unknown }).description === "string"
+  );
+};
 
 const Planner = () => {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -195,7 +206,9 @@ const Planner = () => {
 
             setDrawerState({ mode: "closed" });
           } catch (error) {
-            const friendly = mapErrorToFriendlyMessage(error, "saving the appointment");
+            const friendly = isFriendlyErrorMessage(error)
+              ? error
+              : mapErrorToFriendlyMessage(error, "saving the appointment");
             toast({ title: friendly.title, description: friendly.description, variant: "destructive" });
           }
         }}

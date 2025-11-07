@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: path.resolve(__dirname, "../dist"),
     emptyOutDir: true,
+    chunkSizeWarningLimit: 3000,
   },
   test: {
     globals: true,
