@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { addDays } from "date-fns";
+import { addDays, startOfDay } from "date-fns";
 import { CalendarIcon, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,12 +9,15 @@ import { PlannerBoard } from "@/features/planner/PlannerBoard";
 import {
   usePlannerAppointments,
   usePlannerBays,
+  usePlannerResourceAvailability,
   usePlannerTechnicians,
   type PlannerBay,
 } from "@/features/planner/hooks";
 import { EditAppointmentDrawer } from "@/features/planner/EditAppointmentDrawer";
+import { AppointmentDialog } from "@/features/planner/AppointmentDialog";
+import { ResourceManagementDrawer } from "@/features/planner/ResourceManagementDrawer";
 import { ORG_TIMEZONE } from "@/features/planner/types";
-import { formatInOrgTimezone } from "@/lib/timezone";
+import { formatInOrgTimezone, toOrgZonedTime } from "@/lib/timezone";
 import { toast } from "@/hooks/use-toast";
 import { mapErrorToFriendlyMessage, type FriendlyErrorMessage } from "@/lib/errorHandling";
 
@@ -38,10 +41,13 @@ const Planner = () => {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [selectedBayId, setSelectedBayId] = useState<string | null>(null);
   const [drawerState, setDrawerState] = useState<DrawerState>({ mode: "closed" });
+  const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
+  const [isResourceDrawerOpen, setIsResourceDrawerOpen] = useState(false);
 
   const techniciansQuery = usePlannerTechnicians();
   const baysQuery = usePlannerBays();
   const appointmentsQuery = usePlannerAppointments(selectedDate, { bayId: selectedBayId });
+  const resourceAvailability = usePlannerResourceAvailability();
 
   const isLoading = techniciansQuery.isLoading || appointmentsQuery.isLoading;
   const isMutating = appointmentsQuery.isMutating;
@@ -72,6 +78,83 @@ const Planner = () => {
   };
 
   const bayValue = selectedBayId ?? "all";
+
+  const laneOverlays = useMemo(() => {
+    const overlays: Record<
+      string,
+      { availability: { start: Date; end: Date }[]; timeOff: { id: string; start: Date; end: Date; reason: string | null }[] }
+    > = {};
+
+    const zonedDay = toOrgZonedTime(selectedDate);
+    if (Number.isNaN(zonedDay.getTime())) {
+      return overlays;
+    }
+    const weekday = zonedDay.getUTCDay();
+    const dayStart = startOfDay(zonedDay);
+    const dayEnd = addDays(dayStart, 1);
+
+    const ensureOverlay = (key: string) => {
+      if (!overlays[key]) {
+        overlays[key] = { availability: [], timeOff: [] };
+      }
+      return overlays[key];
+    };
+
+    const createZonedDate = (time: string) => {
+      const [hour = "0", minute = "0"] = time.split(":");
+      const date = new Date(dayStart);
+      date.setUTCHours(Number(hour), Number(minute), 0, 0);
+      return date;
+    };
+
+    for (const entry of resourceAvailability.availability) {
+      if (entry.weekday !== weekday) continue;
+      const overlay = ensureOverlay(entry.resourceId);
+      overlay.availability = [
+        ...overlay.availability,
+        { start: createZonedDate(entry.startTime), end: createZonedDate(entry.endTime) },
+      ];
+    }
+
+    for (const entry of resourceAvailability.timeOff) {
+      const start = toOrgZonedTime(entry.startTime);
+      const end = toOrgZonedTime(entry.endTime);
+      if (!(start < dayEnd && end > dayStart)) {
+        continue;
+      }
+      const overlay = ensureOverlay(entry.resourceId);
+      overlay.timeOff = [
+        ...overlay.timeOff,
+        {
+          id: entry.id,
+          start: start < dayStart ? dayStart : start,
+          end: end > dayEnd ? dayEnd : end,
+          reason: entry.reason ?? null,
+        },
+      ];
+    }
+
+    for (const technician of techniciansQuery.data ?? []) {
+      const sourceKey = technician.resourceId ?? technician.id;
+      const source = overlays[sourceKey];
+      if (!source) continue;
+      const target = ensureOverlay(technician.id);
+      target.availability = [...target.availability, ...source.availability];
+      target.timeOff = [...target.timeOff, ...source.timeOff];
+    }
+
+    return overlays;
+  }, [
+    resourceAvailability.availability,
+    resourceAvailability.timeOff,
+    selectedDate,
+    techniciansQuery.data,
+  ]);
+
+  const dialogAppointment = useMemo(
+    () => appointmentsQuery.appointments.find((item) => item.id === activeAppointmentId) ?? null,
+    [appointmentsQuery.appointments, activeAppointmentId]
+  );
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
@@ -105,6 +188,14 @@ const Planner = () => {
                 appointmentsQuery.isFetching || isMutating ? "animate-spin" : undefined
               )}
             />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsResourceDrawerOpen(true)}
+            disabled={resourceAvailability.isLoading}
+          >
+            Manage availability
           </Button>
         </div>
       </header>
@@ -143,13 +234,14 @@ const Planner = () => {
           isLoading={isLoading && !appointmentsQuery.appointments.length}
           onAppointmentMove={appointmentsQuery.moveAppointment}
           onAppointmentResize={appointmentsQuery.resizeAppointment}
-          onAppointmentClick={(id) => setDrawerState({ mode: "edit", appointmentId: id })}
+          onAppointmentClick={(id) => setActiveAppointmentId(id)}
           onSlotCreate={({ technicianId, bayId, startsAt, endsAt }) =>
             setDrawerState({ mode: "create", technicianId, bayId, startsAt, endsAt })
           }
           onStatusChange={({ id, status }) => appointmentsQuery.updateStatus(id, status)}
           disableStatusActions={appointmentsQuery.isStatusMutating}
           canSchedule={appointmentsQuery.canSchedule}
+          laneOverlays={laneOverlays}
         />
       </div>
 
@@ -212,6 +304,55 @@ const Planner = () => {
             toast({ title: friendly.title, description: friendly.description, variant: "destructive" });
           }
         }}
+      />
+
+      <AppointmentDialog
+        open={Boolean(activeAppointmentId)}
+        appointmentId={activeAppointmentId}
+        appointment={dialogAppointment}
+        technicians={techniciansQuery.data ?? []}
+        bays={baysQuery.data ?? []}
+        onClose={() => setActiveAppointmentId(null)}
+        onEdit={() => {
+          if (!activeAppointmentId) return;
+          setDrawerState({ mode: "edit", appointmentId: activeAppointmentId });
+          setActiveAppointmentId(null);
+        }}
+        onDelete={async () => {
+          if (!activeAppointmentId) return;
+          await appointmentsQuery.deleteAppointment(activeAppointmentId);
+        }}
+        onCancel={async (reason) => {
+          if (!activeAppointmentId) return;
+          await appointmentsQuery.cancelAppointment({ id: activeAppointmentId, reason });
+        }}
+        onSaveNotes={async (notes) => {
+          if (!activeAppointmentId) return;
+          await appointmentsQuery.updateNotes({ id: activeAppointmentId, notes });
+        }}
+        onConvertToWorkOrder={async () => {
+          if (!activeAppointmentId) return;
+          await appointmentsQuery.convertToWorkOrder(activeAppointmentId);
+        }}
+        isDeleting={appointmentsQuery.isDeleting}
+        isCancelling={appointmentsQuery.isCancelling}
+        isSavingNotes={appointmentsQuery.isSavingNotes}
+        isConverting={appointmentsQuery.isConverting}
+      />
+
+      <ResourceManagementDrawer
+        open={isResourceDrawerOpen}
+        onClose={() => setIsResourceDrawerOpen(false)}
+        technicians={techniciansQuery.data ?? []}
+        bays={baysQuery.data ?? []}
+        availability={resourceAvailability.availability}
+        timeOff={resourceAvailability.timeOff}
+        isLoading={resourceAvailability.isLoading}
+        isMutating={resourceAvailability.isMutating}
+        onCreateAvailability={resourceAvailability.createAvailability}
+        onDeleteAvailability={resourceAvailability.deleteAvailability}
+        onCreateTimeOff={resourceAvailability.createTimeOff}
+        onDeleteTimeOff={resourceAvailability.deleteTimeOff}
       />
     </div>
   );

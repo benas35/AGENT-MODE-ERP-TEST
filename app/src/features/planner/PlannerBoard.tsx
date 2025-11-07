@@ -46,12 +46,33 @@ interface PlannerBoardProps {
   onStatusChange: (payload: { id: string; status: PlannerStatus }) => Promise<void>;
   disableStatusActions?: boolean;
   canSchedule: (input: CanScheduleInput) => Promise<boolean>;
+  laneOverlays?: Record<
+    string,
+    { availability: { start: Date; end: Date }[]; timeOff: { id: string; start: Date; end: Date; reason: string | null }[] }
+  >;
 }
 
 interface DerivedAppointment extends PlannerAppointment {
   startZoned: Date;
   endZoned: Date;
 }
+
+const isWithinAvailabilityWindow = (
+  start: Date,
+  end: Date,
+  windows: { start: Date; end: Date }[]
+) => {
+  if (!windows.length) {
+    return true;
+  }
+  return windows.some((window) => start >= window.start && end <= window.end);
+};
+
+const intersectsBlocks = (
+  start: Date,
+  end: Date,
+  blocks: { start: Date; end: Date }[]
+) => blocks.some((block) => start < block.end && end > block.start);
 
 const technicianPalette = [
   "#0f172a",
@@ -96,6 +117,7 @@ export const PlannerBoard = ({
   onStatusChange,
   disableStatusActions = false,
   canSchedule,
+  laneOverlays = {},
 }: PlannerBoardProps) => {
   const filteredAppointments = useMemo(
     () =>
@@ -122,6 +144,109 @@ export const PlannerBoard = ({
     }
     return map;
   }, [derivedAppointments]);
+
+  const staticConflicts = useMemo(() => {
+    const messages = new Map<string, string[]>();
+    const addMessage = (id: string, message: string) => {
+      const existing = messages.get(id) ?? [];
+      if (!existing.includes(message)) {
+        messages.set(id, [...existing, message]);
+      }
+    };
+
+    for (let i = 0; i < derivedAppointments.length; i += 1) {
+      for (let j = i + 1; j < derivedAppointments.length; j += 1) {
+        const first = derivedAppointments[i];
+        const second = derivedAppointments[j];
+        const overlap = first.startZoned < second.endZoned && first.endZoned > second.startZoned;
+        if (!overlap) continue;
+
+        if (first.technicianId && second.technicianId && first.technicianId === second.technicianId) {
+          const message = "Overlaps with another appointment for this technician";
+          addMessage(first.id, message);
+          addMessage(second.id, message);
+        }
+
+        if (first.bayId && second.bayId && first.bayId === second.bayId) {
+          const message = "Overlaps with another appointment in the bay";
+          addMessage(first.id, message);
+          addMessage(second.id, message);
+        }
+      }
+    }
+
+    for (const appointment of derivedAppointments) {
+      const overlayCandidates: { kind: "technician" | "bay"; overlay?: { availability: { start: Date; end: Date }[]; timeOff: { start: Date; end: Date }[] } }[] = [];
+      if (appointment.technicianId) {
+        overlayCandidates.push({ kind: "technician", overlay: laneOverlays[appointment.technicianId] });
+      }
+      if (appointment.bayId) {
+        overlayCandidates.push({ kind: "bay", overlay: laneOverlays[appointment.bayId] });
+      }
+
+      for (const candidate of overlayCandidates) {
+        const overlay = candidate.overlay;
+        if (!overlay) continue;
+
+        if (
+          overlay.availability.length &&
+          !isWithinAvailabilityWindow(appointment.startZoned, appointment.endZoned, overlay.availability)
+        ) {
+          addMessage(
+            appointment.id,
+            candidate.kind === "technician" ? "Outside technician working hours" : "Outside bay availability"
+          );
+        }
+
+        if (intersectsBlocks(appointment.startZoned, appointment.endZoned, overlay.timeOff)) {
+          addMessage(
+            appointment.id,
+            candidate.kind === "technician" ? "Scheduled during technician time off" : "Scheduled during bay downtime"
+          );
+        }
+      }
+    }
+
+    return messages;
+  }, [derivedAppointments, laneOverlays]);
+
+  const validateAgainstOverlays = useCallback(
+    (technicianId: string | null, bayId: string | null, start: Date, end: Date) => {
+      const messages: string[] = [];
+      const overlaysToCheck: { kind: "technician" | "bay"; overlay?: { availability: { start: Date; end: Date }[]; timeOff: { start: Date; end: Date }[] } }[] = [];
+
+      if (technicianId) {
+        overlaysToCheck.push({ kind: "technician", overlay: laneOverlays[technicianId] });
+      }
+      if (bayId) {
+        overlaysToCheck.push({ kind: "bay", overlay: laneOverlays[bayId] });
+      }
+
+      for (const candidate of overlaysToCheck) {
+        const overlay = candidate.overlay;
+        if (!overlay) continue;
+
+        if (overlay.availability.length && !isWithinAvailabilityWindow(start, end, overlay.availability)) {
+          messages.push(
+            candidate.kind === "technician"
+              ? "Outside technician working hours"
+              : "Outside bay availability"
+          );
+        }
+
+        if (intersectsBlocks(start, end, overlay.timeOff)) {
+          messages.push(
+            candidate.kind === "technician"
+              ? "Scheduled during technician time off"
+              : "Scheduled during bay downtime"
+          );
+        }
+      }
+
+      return { allowed: messages.length === 0, messages };
+    },
+    [laneOverlays]
+  );
 
   const boardWindow = useMemo(
     () => getBoardWindow(date, filteredAppointments),
@@ -410,6 +535,18 @@ export const PlannerBoard = ({
       const technicianId = laneId === "unassigned" ? null : laneId;
 
       try {
+        const overlayCheck = validateAgainstOverlays(technicianId, derived.bayId ?? null, start, end);
+        if (!overlayCheck.allowed) {
+          toast({
+            title: "Cannot move appointment",
+            description: overlayCheck.messages.join(" "),
+            variant: "destructive",
+          });
+          clearOptimistic(draggableId);
+          destinationLane.current = null;
+          return;
+        }
+
         const payload = {
           id: draggableId,
           technicianId,
@@ -474,6 +611,7 @@ export const PlannerBoard = ({
       onAppointmentMove,
       optimistic,
       totalMinutes,
+      validateAgainstOverlays,
     ]
   );
 
@@ -558,6 +696,23 @@ export const PlannerBoard = ({
               endsAt: toUtcIso(finalEnd),
             } satisfies PlannerResizePayload;
 
+            const overlayCheck = validateAgainstOverlays(
+              derived.technicianId ?? null,
+              derived.bayId ?? null,
+              finalStart,
+              finalEnd
+            );
+
+            if (!overlayCheck.allowed) {
+              toast({
+                title: "Cannot resize appointment",
+                description: overlayCheck.messages.join(" "),
+                variant: "destructive",
+              });
+              clearOptimistic(id);
+              return;
+            }
+
             const allowed = await canSchedule({
               technicianId: derived.technicianId,
               bayId: derived.bayId,
@@ -619,6 +774,7 @@ export const PlannerBoard = ({
       findNearestAvailableSlot,
       onAppointmentResize,
       totalPixels,
+      validateAgainstOverlays,
     ]
   );
 
@@ -751,116 +907,166 @@ export const PlannerBoard = ({
         </div>
         <div className="flex-1 overflow-auto">
           <div className="flex min-w-max">
-            {columns.map(({ laneId, technician, appointments: laneAppointments, color }, columnIndex) => (
-              <div key={laneId} className="flex min-w-[280px] flex-col border-r last:border-r-0">
-                <div className="flex items-center justify-between border-b bg-muted/60 px-3 py-2 text-sm font-medium">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: color ?? technician?.color ?? technicianPalette[columnIndex % technicianPalette.length] }}
-                    aria-hidden
-                  />
-                  {technician ? technician.name : "Unassigned"}
-                </div>
-                {technician?.skills?.length ? (
-                  <span className="text-xs text-muted-foreground">{technician.skills.join(", ")}</span>
-                ) : null}
-              </div>
-              <Droppable droppableId={technician ? technician.id : "unassigned"} type="appointment" ignoreContainerClipping>
-                {(provided) => (
-                  <div
-                    ref={(node) => {
-                      provided.innerRef(node);
-                      registerLaneRef(technician ? technician.id : "unassigned", node);
-                    }}
-                    {...provided.droppableProps}
-                    className="relative flex-1"
-                    aria-label={technician ? `${technician.name} lane` : "Unassigned lane"}
-                  >
-                    <div className="absolute inset-0">
-                      {gridLines.map((line) => (
-                        <div
-                          key={line.key}
-                          className={cn(
-                            "absolute left-0 right-0 border-t",
-                            line.label ? "border-border" : "border-border/50"
-                          )}
-                          style={{ top: line.top }}
-                          aria-hidden
-                        />
-                      ))}
-                      {nowOffset != null ? (
-                        <div
-                          className="absolute left-0 right-0 h-[2px] bg-primary"
-                          style={{ top: nowOffset }}
-                          aria-hidden
-                        />
-                      ) : null}
-                    </div>
-                    <div
-                      className="relative h-full"
-                      style={{ height: totalPixels }}
-                      onClick={handleLaneClick(technician ? technician.id : null)}
-                    >
-                      {laneAppointments.map((appointment, index) => {
-                        const override = optimistic[appointment.id];
-                        const start = override?.start ?? appointment.startZoned;
-                        const end = override?.end ?? appointment.endZoned;
-                        const candidateTechnician =
-                          override?.technicianId ?? (technician ? technician.id : null);
-                        const isActive = draggingId === appointment.id || resizingId === appointment.id;
-                        const hasConflict =
-                          isActive &&
-                          checkConflict(
-                            appointment.id,
-                            start,
-                            end,
-                            candidateTechnician,
-                            appointment.bayId
-                          );
-                        const top = timeToPixels(start, boardWindow.start);
-                        const height = Math.max(
-                          MIN_SLOT_MINUTES * minuteHeight,
-                          timeToPixels(end, boardWindow.start) - top
-                        );
+            {columns.map(({ laneId, technician, appointments: laneAppointments, color }, columnIndex) => {
+              const technicianOverlay = technician ? laneOverlays[technician.id] : undefined;
 
-                        return (
-                          <Draggable key={appointment.id} draggableId={appointment.id} index={index}>
-                            {(dragProvided, snapshot) => (
-                              <AppointmentCard
-                                appointment={appointment}
-                                top={top}
-                                height={height}
-                                isDragging={snapshot.isDragging}
-                                isResizing={resizingId === appointment.id}
-                                onPointerDown={(event) => handlePointerDown(appointment.id, event)}
-                                onResizeStart={(direction) =>
-                                  handleResizeStart(
-                                    appointment.id,
-                                    technician ? technician.id : "unassigned",
-                                    direction
-                                  )
-                                }
-                                onOpen={onAppointmentClick ? () => onAppointmentClick(appointment.id) : undefined}
-                                onStatusChange={(status) => handleStatusChange(appointment.id, status)}
-                                disableStatusActions={disableStatusActions}
-                                dragHandleProps={dragProvided.dragHandleProps}
-                                draggableProps={dragProvided.draggableProps}
-                                innerRef={dragProvided.innerRef}
-                                hasConflict={hasConflict}
-                                conflictMessage="Conflicts with another appointment in this lane or bay"
-                              />
-                            )}
-                          </Draggable>
-                        );
-                      })}
-                      {provided.placeholder}
+              return (
+                <div key={laneId} className="flex min-w-[280px] flex-col border-r last:border-r-0">
+                  <div className="flex items-center justify-between border-b bg-muted/60 px-3 py-2 text-sm font-medium">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: color ?? technician?.color ?? technicianPalette[columnIndex % technicianPalette.length] }}
+                        aria-hidden
+                      />
+                      {technician ? technician.name : "Unassigned"}
                     </div>
+                    {technician?.skills?.length ? (
+                      <span className="text-xs text-muted-foreground">{technician.skills.join(", ")}</span>
+                    ) : null}
                   </div>
-                )}
-              </Droppable>
-              </div>
-            ))}
+                  <Droppable droppableId={technician ? technician.id : "unassigned"} type="appointment" ignoreContainerClipping>
+                    {(provided) => (
+                      <div
+                        ref={(node) => {
+                          provided.innerRef(node);
+                          registerLaneRef(technician ? technician.id : "unassigned", node);
+                        }}
+                        {...provided.droppableProps}
+                        className="relative flex-1"
+                        aria-label={technician ? `${technician.name} lane` : "Unassigned lane"}
+                      >
+                        <div className="absolute inset-0">
+                          {gridLines.map((line) => (
+                            <div
+                              key={line.key}
+                              className={cn(
+                                "absolute left-0 right-0 border-t",
+                                line.label ? "border-border" : "border-border/50"
+                              )}
+                              style={{ top: line.top }}
+                              aria-hidden
+                            />
+                          ))}
+                          {(technicianOverlay?.availability ?? []).map((window, index) => {
+                            const start = clampDate(window.start, boardWindow.start, boardWindow.end);
+                            const end = clampDate(window.end, start, boardWindow.end);
+                            if (end.getTime() <= start.getTime()) {
+                              return null;
+                            }
+                            const top = timeToPixels(start, boardWindow.start);
+                            const height = Math.max(
+                              MIN_SLOT_MINUTES * minuteHeight,
+                              timeToPixels(end, boardWindow.start) - top
+                            );
+                            return (
+                              <div
+                                key={`availability-${laneId}-${index}`}
+                                className="absolute left-0 right-0 rounded-sm bg-emerald-200/25"
+                                style={{ top, height }}
+                                aria-hidden
+                              />
+                            );
+                          })}
+                          {(technicianOverlay?.timeOff ?? []).map((block) => {
+                            const start = clampDate(block.start, boardWindow.start, boardWindow.end);
+                            const end = clampDate(block.end, start, boardWindow.end);
+                            if (end.getTime() <= start.getTime()) {
+                              return null;
+                            }
+                            const top = timeToPixels(start, boardWindow.start);
+                            const height = Math.max(
+                              MIN_SLOT_MINUTES * minuteHeight,
+                              timeToPixels(end, boardWindow.start) - top
+                            );
+                            return (
+                              <div
+                                key={`timeoff-${laneId}-${block.id}`}
+                                className="absolute left-0 right-0 rounded-sm border border-destructive/40 bg-destructive/20"
+                                style={{ top, height }}
+                                aria-hidden
+                              />
+                            );
+                          })}
+                          {nowOffset != null ? (
+                            <div
+                              className="absolute left-0 right-0 h-[2px] bg-primary"
+                              style={{ top: nowOffset }}
+                              aria-hidden
+                            />
+                          ) : null}
+                        </div>
+                        <div
+                          className="relative h-full"
+                          style={{ height: totalPixels }}
+                          onClick={handleLaneClick(technician ? technician.id : null)}
+                        >
+                          {laneAppointments.map((appointment, index) => {
+                            const override = optimistic[appointment.id];
+                            const start = override?.start ?? appointment.startZoned;
+                            const end = override?.end ?? appointment.endZoned;
+                            const candidateTechnician =
+                              override?.technicianId ?? (technician ? technician.id : null);
+                            const isActive = draggingId === appointment.id || resizingId === appointment.id;
+                            const dynamicConflict =
+                              isActive &&
+                              checkConflict(
+                                appointment.id,
+                                start,
+                                end,
+                                candidateTechnician,
+                                appointment.bayId
+                              );
+                            const staticMessages = staticConflicts.get(appointment.id) ?? [];
+                            const messages = dynamicConflict
+                              ? [...staticMessages, "Conflicts with another appointment in this lane or bay"]
+                              : [...staticMessages];
+                            const hasConflict = messages.length > 0;
+                            const conflictMessage = messages.join(" • ");
+                            const top = timeToPixels(start, boardWindow.start);
+                            const height = Math.max(
+                              MIN_SLOT_MINUTES * minuteHeight,
+                              timeToPixels(end, boardWindow.start) - top
+                            );
+
+                            return (
+                              <Draggable key={appointment.id} draggableId={appointment.id} index={index}>
+                                {(dragProvided, snapshot) => (
+                                  <AppointmentCard
+                                    appointment={appointment}
+                                    top={top}
+                                    height={height}
+                                    isDragging={snapshot.isDragging}
+                                    isResizing={resizingId === appointment.id}
+                                    onPointerDown={(event) => handlePointerDown(appointment.id, event)}
+                                    onResizeStart={(direction) =>
+                                      handleResizeStart(
+                                        appointment.id,
+                                        technician ? technician.id : "unassigned",
+                                        direction
+                                      )
+                                    }
+                                    onOpen={onAppointmentClick ? () => onAppointmentClick(appointment.id) : undefined}
+                                    onStatusChange={(status) => handleStatusChange(appointment.id, status)}
+                                    disableStatusActions={disableStatusActions}
+                                    dragHandleProps={dragProvided.dragHandleProps}
+                                    draggableProps={dragProvided.draggableProps}
+                                    innerRef={dragProvided.innerRef}
+                                    hasConflict={hasConflict}
+                                    conflictMessage={conflictMessage || undefined}
+                                  />
+                                )}
+                              </Draggable>
+                            );
+                          })}
+                          {provided.placeholder}
+                        </div>
+                      </div>
+                    )}
+                  </Droppable>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
