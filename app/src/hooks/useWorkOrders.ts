@@ -24,16 +24,17 @@ export interface WorkOrder {
     first_name: string;
     last_name: string;
     phone?: string;
-  };
+    email?: string;
+  } | null;
   vehicle?: {
     year?: number;
     make: string;
     model: string;
     license_plate?: string;
-  };
+  } | null;
   technician?: {
     display_name?: string;
-  };
+  } | null;
   workflow_stage?: {
     name: string;
     color: string;
@@ -62,7 +63,7 @@ export const useWorkOrders = (options: UseWorkOrdersOptions) => {
         .from('work_orders')
         .select(`
           *,
-          customer:customers(first_name, last_name, phone),
+          customer:customers(first_name, last_name, phone, email),
           vehicle:vehicles(year, make, model, license_plate),
           workflow_stage:workflow_stages(name, color)
         `)
@@ -87,27 +88,29 @@ export const useWorkOrders = (options: UseWorkOrdersOptions) => {
         return;
       }
 
-      // Fetch technician names separately if needed
+      const workOrderRows = (data ?? []) as WorkOrder[];
       const workOrdersWithTech = await Promise.all(
-        (data || []).map(async (wo: any) => {
-          if (wo.technician_id) {
-            const { data: resource } = await supabase
-              .from('resources')
-              .select('name')
-              .eq('id', wo.technician_id)
-              .eq('type', 'TECHNICIAN')
-              .maybeSingle();
-            
-            return {
-              ...wo,
-              technician: resource ? { display_name: resource.name } : null
-            };
+        workOrderRows.map(async (workOrder) => {
+          if (!workOrder.technician_id) {
+            return { ...workOrder, technician: null } satisfies WorkOrder;
           }
-          return { ...wo, technician: null };
-        })
+
+          const { data: resource } = await supabase
+            .from("resources")
+            .select("name")
+            .eq("id", workOrder.technician_id)
+            .eq("type", "TECHNICIAN")
+            .maybeSingle();
+
+          const technician = resource?.name
+            ? { display_name: resource.name as string }
+            : null;
+
+          return { ...workOrder, technician } satisfies WorkOrder;
+        }),
       );
 
-      setWorkOrders(workOrdersWithTech as WorkOrder[]);
+      setWorkOrders(workOrdersWithTech);
     } catch (err) {
       console.error('Error in fetchWorkOrders:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');

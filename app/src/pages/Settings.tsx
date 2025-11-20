@@ -27,6 +27,7 @@ import {
   Save
 } from "lucide-react";
 import { toast } from "sonner";
+import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
 
 export default function Settings() {
   const [loading, setLoading] = useState(false);
@@ -49,16 +50,14 @@ export default function Settings() {
     }
   });
 
-  // Notification settings state
-  const [notifications, setNotifications] = useState({
-    emailNotifications: true,
-    smsNotifications: true,
-    appointmentReminders: true,
-    overdueAlerts: true,
-    lowInventoryAlerts: true,
-    dailyReports: false,
-    weeklyReports: true
-  });
+  const {
+    preferences,
+    updatePreference,
+    savePreferences,
+    loading: preferencesLoading,
+    saving: preferencesSaving,
+    dirty: preferencesDirty,
+  } = useNotificationPreferences();
 
   // User management state
   const [users] = useState([
@@ -343,11 +342,19 @@ export default function Settings() {
         {/* Notifications */}
         <TabsContent value="notifications" className="space-y-6">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Bell className="h-5 w-5" />
                 Notification Preferences
               </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => savePreferences()}
+                disabled={!preferencesDirty || preferencesSaving}
+              >
+                {preferencesSaving ? "Saving..." : "Save changes"}
+              </Button>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
@@ -357,78 +364,85 @@ export default function Settings() {
                     <p className="text-sm text-muted-foreground">Receive notifications via email</p>
                   </div>
                   <Switch
-                    checked={notifications.emailNotifications}
-                    onCheckedChange={(checked) => setNotifications({...notifications, emailNotifications: checked})}
+                    checked={preferences.notifyEmail}
+                    disabled={preferencesLoading || preferencesSaving}
+                    onCheckedChange={(checked) => updatePreference('notifyEmail', Boolean(checked))}
                   />
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>SMS Notifications</Label>
                     <p className="text-sm text-muted-foreground">Receive urgent notifications via SMS</p>
                   </div>
                   <Switch
-                    checked={notifications.smsNotifications}
-                    onCheckedChange={(checked) => setNotifications({...notifications, smsNotifications: checked})}
+                    checked={preferences.notifySms}
+                    disabled={preferencesLoading || preferencesSaving}
+                    onCheckedChange={(checked) => updatePreference('notifySms', Boolean(checked))}
                   />
                 </div>
-                
+
                 <Separator />
-                
+
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Appointment Reminders</Label>
                     <p className="text-sm text-muted-foreground">Send automatic appointment reminders</p>
                   </div>
                   <Switch
-                    checked={notifications.appointmentReminders}
-                    onCheckedChange={(checked) => setNotifications({...notifications, appointmentReminders: checked})}
+                    checked={preferences.appointmentReminders}
+                    disabled={preferencesLoading || preferencesSaving}
+                    onCheckedChange={(checked) => updatePreference('appointmentReminders', Boolean(checked))}
                   />
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Overdue Alerts</Label>
                     <p className="text-sm text-muted-foreground">Alert when work orders are overdue</p>
                   </div>
                   <Switch
-                    checked={notifications.overdueAlerts}
-                    onCheckedChange={(checked) => setNotifications({...notifications, overdueAlerts: checked})}
+                    checked={preferences.overdueAlerts}
+                    disabled={preferencesLoading || preferencesSaving}
+                    onCheckedChange={(checked) => updatePreference('overdueAlerts', Boolean(checked))}
                   />
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Low Inventory Alerts</Label>
                     <p className="text-sm text-muted-foreground">Alert when inventory is running low</p>
                   </div>
                   <Switch
-                    checked={notifications.lowInventoryAlerts}
-                    onCheckedChange={(checked) => setNotifications({...notifications, lowInventoryAlerts: checked})}
+                    checked={preferences.lowInventoryAlerts}
+                    disabled={preferencesLoading || preferencesSaving}
+                    onCheckedChange={(checked) => updatePreference('lowInventoryAlerts', Boolean(checked))}
                   />
                 </div>
-                
+
                 <Separator />
-                
+
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Daily Reports</Label>
                     <p className="text-sm text-muted-foreground">Receive daily performance reports</p>
                   </div>
                   <Switch
-                    checked={notifications.dailyReports}
-                    onCheckedChange={(checked) => setNotifications({...notifications, dailyReports: checked})}
+                    checked={preferences.dailyReports}
+                    disabled={preferencesLoading || preferencesSaving}
+                    onCheckedChange={(checked) => updatePreference('dailyReports', Boolean(checked))}
                   />
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Weekly Reports</Label>
                     <p className="text-sm text-muted-foreground">Receive weekly business summaries</p>
                   </div>
                   <Switch
-                    checked={notifications.weeklyReports}
-                    onCheckedChange={(checked) => setNotifications({...notifications, weeklyReports: checked})}
+                    checked={preferences.weeklyReports}
+                    disabled={preferencesLoading || preferencesSaving}
+                    onCheckedChange={(checked) => updatePreference('weeklyReports', Boolean(checked))}
                   />
                 </div>
               </div>
