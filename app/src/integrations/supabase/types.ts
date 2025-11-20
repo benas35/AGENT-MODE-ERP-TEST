@@ -2201,6 +2201,69 @@ dvi_signatures
           },
         ]
       }
+      user_notification_preferences: {
+        Row: {
+          appointment_reminders: boolean
+          created_at: string
+          daily_reports: boolean
+          id: string
+          low_inventory_alerts: boolean
+          notify_email: boolean
+          notify_push: boolean
+          notify_sms: boolean
+          org_id: string
+          profile_id: string
+          overdue_alerts: boolean
+          updated_at: string
+          weekly_reports: boolean
+        }
+        Insert: {
+          appointment_reminders?: boolean
+          created_at?: string
+          daily_reports?: boolean
+          id?: string
+          low_inventory_alerts?: boolean
+          notify_email?: boolean
+          notify_push?: boolean
+          notify_sms?: boolean
+          org_id: string
+          profile_id: string
+          overdue_alerts?: boolean
+          updated_at?: string
+          weekly_reports?: boolean
+        }
+        Update: {
+          appointment_reminders?: boolean
+          created_at?: string
+          daily_reports?: boolean
+          id?: string
+          low_inventory_alerts?: boolean
+          notify_email?: boolean
+          notify_push?: boolean
+          notify_sms?: boolean
+          org_id?: string
+          profile_id?: string
+          overdue_alerts?: boolean
+          updated_at?: string
+          weekly_reports?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_notification_preferences_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_notification_preferences_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_threads: {
         Row: {
           created_at: string
@@ -2249,6 +2312,8 @@ dvi_signatures
           body: string
           created_at: string
           id: string
+          mentions: string[] | null
+          metadata: Json | null
           org_id: string
           priority: "normal" | "urgent"
           read_at: string | null
@@ -2262,6 +2327,8 @@ dvi_signatures
           body: string
           created_at?: string
           id?: string
+          mentions?: string[] | null
+          metadata?: Json | null
           org_id: string
           priority?: "normal" | "urgent"
           read_at?: string | null
@@ -2275,6 +2342,8 @@ dvi_signatures
           body?: string
           created_at?: string
           id?: string
+          mentions?: string[] | null
+          metadata?: Json | null
           org_id?: string
           priority?: "normal" | "urgent"
           read_at?: string | null
@@ -4190,6 +4259,132 @@ dvi_signatures
           },
         ]
       }
+      work_order_activity: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          details: Json
+          id: string
+          org_id: string
+          work_order_id: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          org_id: string
+          work_order_id: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          org_id?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_activity_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_activity_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_activity_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_order_approvals: {
+        Row: {
+          created_at: string
+          customer_id: string
+          id: string
+          message: string | null
+          metadata: Json
+          org_id: string
+          requested_by: string | null
+          response_message: string | null
+          responded_at: string | null
+          status: Database["public"]["Enums"]["work_order_approval_status"]
+          updated_at: string
+          work_order_id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_id: string
+          id?: string
+          message?: string | null
+          metadata?: Json
+          org_id: string
+          requested_by?: string | null
+          response_message?: string | null
+          responded_at?: string | null
+          status?: Database["public"]["Enums"]["work_order_approval_status"]
+          updated_at?: string
+          work_order_id: string
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string
+          id?: string
+          message?: string | null
+          metadata?: Json
+          org_id?: string
+          requested_by?: string | null
+          response_message?: string | null
+          responded_at?: string | null
+          status?: Database["public"]["Enums"]["work_order_approval_status"]
+          updated_at?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_approvals_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_approvals_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_approvals_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_approvals_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_order_items: {
         Row: {
           completed_at: string | null
@@ -4338,6 +4533,64 @@ dvi_signatures
           },
           {
             foreignKeyName: "work_order_media_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_order_notes: {
+        Row: {
+          author_id: string
+          body: string
+          created_at: string
+          id: string
+          mentions: string[] | null
+          org_id: string
+          pinned: boolean
+          updated_at: string
+          work_order_id: string
+        }
+        Insert: {
+          author_id: string
+          body: string
+          created_at?: string
+          id?: string
+          mentions?: string[] | null
+          org_id: string
+          pinned?: boolean
+          updated_at?: string
+          work_order_id: string
+        }
+        Update: {
+          author_id?: string
+          body?: string
+          created_at?: string
+          id?: string
+          mentions?: string[] | null
+          org_id?: string
+          pinned?: boolean
+          updated_at?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_notes_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_notes_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_notes_work_order_id_fkey"
             columns: ["work_order_id"]
             isOneToOne: false
             referencedRelation: "work_orders"
@@ -5055,10 +5308,14 @@ export const Constants = {
         "SCHEDULED",
         "IN_PROGRESS",
         "WAITING_PARTS",
+        "WAITING_APPROVAL",
+        "APPROVED",
+        "DECLINED",
         "READY",
         "COMPLETED",
         "CANCELLED",
       ],
+      work_order_approval_status: ["PENDING", "APPROVED", "DECLINED", "SUPERSEDED"],
     },
   },
 } as const

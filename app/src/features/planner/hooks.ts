@@ -39,19 +39,63 @@ export const usePlannerTechnicians = () => {
     queryKey: ["planner", "technicians", orgId ?? "anonymous"],
     queryFn: async () => {
       if (!orgId) return [];
-      const { data, error } = await supabase
-        .from("technicians")
-        .select(
-          `id, user_id, skills, availability, created_at, profiles:profiles!technicians_user_id_fkey(first_name,last_name)`
-        )
-        .eq("org_id", orgId)
-        .order("created_at");
+      const [techniciansResponse, resourcesResponse] = await Promise.all([
+        supabase
+          .from("technicians")
+          .select(
+            `id, user_id, skills, availability, created_at, profiles:profiles!technicians_user_id_fkey(first_name,last_name)`
+          )
+          .eq("org_id", orgId)
+          .order("created_at"),
+        supabase
+          .from("resources")
+          .select("id, meta, color")
+          .eq("org_id", orgId)
+          .eq("type", "TECHNICIAN")
+          .eq("active", true),
+      ]);
 
-      if (error) {
-        throw error;
+      if (techniciansResponse.error) {
+        throw techniciansResponse.error;
       }
 
-      return (data ?? []).map((row, index) => {
+      if (resourcesResponse.error) {
+        throw resourcesResponse.error;
+      }
+
+      const technicianRows = techniciansResponse.data ?? [];
+      const resourceRows = resourcesResponse.data ?? [];
+
+      const getMetaString = (meta: Record<string, unknown> | null, key: string) => {
+        if (!meta) return null;
+        const direct = meta[key];
+        if (typeof direct === "string" && direct) {
+          return direct;
+        }
+        const camelKey = key.replace(/_([a-z])/g, (_, char) => char.toUpperCase());
+        const camelValue = meta[camelKey];
+        if (typeof camelValue === "string" && camelValue) {
+          return camelValue;
+        }
+        return null;
+      };
+
+      const resourceByTechnicianId = new Map<string, { id: string; color: string | null }>();
+      const resourceByUserId = new Map<string, { id: string; color: string | null }>();
+
+      for (const resource of resourceRows) {
+        const meta = (resource.meta as Record<string, unknown> | null) ?? null;
+        const technicianId = getMetaString(meta, "technician_id");
+        const userIdFromMeta = getMetaString(meta, "user_id");
+        if (technicianId) {
+          resourceByTechnicianId.set(technicianId, { id: resource.id, color: resource.color ?? null });
+        }
+        if (userIdFromMeta) {
+          resourceByUserId.set(userIdFromMeta, { id: resource.id, color: resource.color ?? null });
+        }
+      }
+
+      return technicianRows.map((row, index) => {
         const profileData = Array.isArray(row.profiles) ? row.profiles[0] : (row as any).profiles;
         const nameFromProfile = profileData
           ? `${profileData.first_name ?? ""} ${profileData.last_name ?? ""}`.trim()
@@ -60,12 +104,18 @@ export const usePlannerTechnicians = () => {
           ? `${row.skills[0].charAt(0).toUpperCase()}${row.skills[0].slice(1)} specialist`
           : `Technician ${index + 1}`;
 
+        const resourceMatch =
+          resourceByTechnicianId.get(row.id) ??
+          (row.user_id ? resourceByUserId.get(row.user_id) ?? null : null);
+        const resourceColor = resourceMatch?.color ?? null;
+
         return {
           id: row.id,
           name: nameFromProfile || fallbackName,
           userId: row.user_id,
           skills: row.skills ?? [],
-          color: TECHNICIAN_COLORS[index % TECHNICIAN_COLORS.length],
+          color: resourceColor ?? TECHNICIAN_COLORS[index % TECHNICIAN_COLORS.length],
+          resourceId: resourceMatch?.id ?? row.id,
         } satisfies PlannerTechnician;
       });
     },
@@ -119,6 +169,212 @@ export const usePlannerBays = () => {
     data: query.data ?? [],
     isLoading: query.isLoading,
     isFetching: query.isFetching,
+  };
+};
+
+export interface ResourceAvailabilityEntry {
+  id: string;
+  resourceId: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+}
+
+export interface ResourceTimeOffEntry {
+  id: string;
+  resourceId: string;
+  startTime: string;
+  endTime: string;
+  reason: string | null;
+}
+
+interface CreateAvailabilityInput {
+  resourceId: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+}
+
+interface DeleteAvailabilityInput {
+  id: string;
+}
+
+interface CreateTimeOffInput {
+  resourceId: string;
+  startTime: string;
+  endTime: string;
+  reason?: string | null;
+}
+
+interface DeleteTimeOffInput {
+  id: string;
+}
+
+export const usePlannerResourceAvailability = () => {
+  const { profile } = useAuth();
+  const orgId = profile?.org_id;
+  const queryClient = useQueryClient();
+
+  const availabilityQuery = useQuery<ResourceAvailabilityEntry[]>({
+    enabled: Boolean(orgId),
+    queryKey: ["planner", "resource-availability", orgId ?? "anonymous"],
+    queryFn: async () => {
+      if (!orgId) return [];
+      const { data, error } = await supabase
+        .from("resource_availability")
+        .select("id, resource_id, weekday, start_time, end_time")
+        .eq("org_id", orgId)
+        .order("weekday")
+        .order("start_time");
+
+      if (error) {
+        throw error;
+      }
+
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        resourceId: row.resource_id,
+        weekday: row.weekday,
+        startTime: row.start_time,
+        endTime: row.end_time,
+      }));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const timeOffQuery = useQuery<ResourceTimeOffEntry[]>({
+    enabled: Boolean(orgId),
+    queryKey: ["planner", "resource-time-off", orgId ?? "anonymous"],
+    queryFn: async () => {
+      if (!orgId) return [];
+      const { data, error } = await supabase
+        .from("resource_time_off")
+        .select("id, resource_id, start_time, end_time, reason")
+        .eq("org_id", orgId)
+        .order("start_time");
+
+      if (error) {
+        throw error;
+      }
+
+      return (data ?? []).map((row) => ({
+        id: row.id,
+        resourceId: row.resource_id,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        reason: row.reason ?? null,
+      }));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const invalidateAvailability = () => {
+    queryClient.invalidateQueries({ queryKey: ["planner", "resource-availability", orgId ?? "anonymous"] });
+  };
+
+  const invalidateTimeOff = () => {
+    queryClient.invalidateQueries({ queryKey: ["planner", "resource-time-off", orgId ?? "anonymous"] });
+  };
+
+  const createAvailabilityMutation = useMutation<void, unknown, CreateAvailabilityInput>({
+    mutationFn: async ({ resourceId, weekday, startTime, endTime }) => {
+      if (!orgId) {
+        throw new Error("Missing organisation context");
+      }
+      const { error } = await supabase.from("resource_availability").insert({
+        org_id: orgId,
+        resource_id: resourceId,
+        weekday,
+        start_time: startTime,
+        end_time: endTime,
+      });
+
+      if (error) {
+        throw error;
+      }
+    },
+    onSuccess: invalidateAvailability,
+  });
+
+  const deleteAvailabilityMutation = useMutation<void, unknown, DeleteAvailabilityInput>({
+    mutationFn: async ({ id }) => {
+      const { error } = await supabase.from("resource_availability").delete().eq("id", id);
+      if (error) {
+        throw error;
+      }
+    },
+    onSuccess: invalidateAvailability,
+  });
+
+  const createTimeOffMutation = useMutation<void, unknown, CreateTimeOffInput>({
+    mutationFn: async ({ resourceId, startTime, endTime, reason }) => {
+      if (!orgId) {
+        throw new Error("Missing organisation context");
+      }
+
+      const { error } = await supabase.from("resource_time_off").insert({
+        org_id: orgId,
+        resource_id: resourceId,
+        start_time: startTime,
+        end_time: endTime,
+        reason: reason ?? null,
+      });
+
+      if (error) {
+        throw error;
+      }
+    },
+    onSuccess: invalidateTimeOff,
+  });
+
+  const deleteTimeOffMutation = useMutation<void, unknown, DeleteTimeOffInput>({
+    mutationFn: async ({ id }) => {
+      const { error } = await supabase.from("resource_time_off").delete().eq("id", id);
+      if (error) {
+        throw error;
+      }
+    },
+    onSuccess: invalidateTimeOff,
+  });
+
+  return {
+    availability: availabilityQuery.data ?? [],
+    timeOff: timeOffQuery.data ?? [],
+    isLoading: availabilityQuery.isLoading || timeOffQuery.isLoading,
+    isFetching: availabilityQuery.isFetching || timeOffQuery.isFetching,
+    isMutating:
+      createAvailabilityMutation.isPending ||
+      deleteAvailabilityMutation.isPending ||
+      createTimeOffMutation.isPending ||
+      deleteTimeOffMutation.isPending,
+    createAvailability: async (input: CreateAvailabilityInput) => {
+      try {
+        await createAvailabilityMutation.mutateAsync(input);
+      } catch (error) {
+        throw mapErrorToFriendlyMessage(error, "creating availability");
+      }
+    },
+    deleteAvailability: async (input: DeleteAvailabilityInput) => {
+      try {
+        await deleteAvailabilityMutation.mutateAsync(input);
+      } catch (error) {
+        throw mapErrorToFriendlyMessage(error, "deleting availability");
+      }
+    },
+    createTimeOff: async (input: CreateTimeOffInput) => {
+      try {
+        await createTimeOffMutation.mutateAsync(input);
+      } catch (error) {
+        throw mapErrorToFriendlyMessage(error, "creating time off");
+      }
+    },
+    deleteTimeOff: async (input: DeleteTimeOffInput) => {
+      try {
+        await deleteTimeOffMutation.mutateAsync(input);
+      } catch (error) {
+        throw mapErrorToFriendlyMessage(error, "deleting time off");
+      }
+    },
   };
 };
 
@@ -458,6 +714,99 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
     onSettled: invalidateAppointments,
   });
 
+  const deleteMutation = useMutation<void, unknown, string>({
+    mutationFn: async (id) => {
+      const { error } = await supabase.from("appointments").delete().eq("id", id);
+      if (error) {
+        throw error;
+      }
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<PlannerAppointment[]>(queryKey) ?? [];
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        current.filter((appointment) => appointment.id !== id)
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, revertAppointments(context.previous));
+      }
+    },
+    onSettled: invalidateAppointments,
+  });
+
+  const cancelMutation = useMutation<void, unknown, CancelAppointmentInput>({
+    mutationFn: async ({ id, reason }) => {
+      const { error } = await supabase.rpc("cancel_appointment", {
+        p_appointment_id: id,
+        p_reason: reason ?? null,
+      });
+
+      if (error) {
+        throw error;
+      }
+    },
+    onSettled: invalidateAppointments,
+  });
+
+  const notesMutation = useMutation<PlannerAppointment, unknown, UpdateAppointmentNotesInput>({
+    mutationFn: async ({ id, notes }) => {
+      const { data, error } = await supabase
+        .from("appointments")
+        .update({
+          notes,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select(selectColumns)
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return mapRowToAppointment(data);
+    },
+    onMutate: async ({ id, notes }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<PlannerAppointment[]>(queryKey) ?? [];
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        current.map((appointment) =>
+          appointment.id === id ? { ...appointment, notes } : appointment
+        )
+      );
+      return { previous };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, revertAppointments(context.previous));
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData<PlannerAppointment[]>(queryKey, (current = []) =>
+        applyUpdateSuccess(current, data, bayId)
+      );
+    },
+    onSettled: invalidateAppointments,
+  });
+
+  const convertMutation = useMutation<string, unknown, string>({
+    mutationFn: async (id) => {
+      const { data, error } = await supabase.rpc("create_work_order_from_appointment", {
+        p_appointment_id: id,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return data as string;
+    },
+    onSettled: invalidateAppointments,
+  });
+
   const canSchedule = async ({
     technicianId,
     bayId: targetBayId,
@@ -521,6 +870,35 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         throw mapErrorToFriendlyMessage(error, "updating the status");
       }
     },
+    deleteAppointment: async (id: string) => {
+      try {
+        await deleteMutation.mutateAsync(id);
+      } catch (error) {
+        throw mapErrorToFriendlyMessage(error, "deleting the appointment");
+      }
+    },
+    cancelAppointment: async (input: CancelAppointmentInput) => {
+      try {
+        await cancelMutation.mutateAsync(input);
+      } catch (error) {
+        throw mapErrorToFriendlyMessage(error, "cancelling the appointment");
+      }
+    },
+    updateNotes: async (input: UpdateAppointmentNotesInput) => {
+      try {
+        await notesMutation.mutateAsync(input);
+      } catch (error) {
+        throw mapErrorToFriendlyMessage(error, "updating notes");
+      }
+    },
+    convertToWorkOrder: async (id: string) => {
+      try {
+        return await convertMutation.mutateAsync(id);
+      } catch (error) {
+        const friendly = mapErrorToFriendlyMessage(error, "creating a work order");
+        throw friendly;
+      }
+    },
     canSchedule: async (input: CanScheduleInput) => {
       try {
         return await canSchedule(input);
@@ -535,7 +913,15 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       resizeMutation.isPending ||
       createMutation.isPending ||
       updateMutation.isPending ||
-      statusMutation.isPending,
+      statusMutation.isPending ||
+      deleteMutation.isPending ||
+      cancelMutation.isPending ||
+      notesMutation.isPending ||
+      convertMutation.isPending,
     isStatusMutating: statusMutation.isPending,
+    isDeleting: deleteMutation.isPending,
+    isCancelling: cancelMutation.isPending,
+    isSavingNotes: notesMutation.isPending,
+    isConverting: convertMutation.isPending,
   };
 };

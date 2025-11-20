@@ -19,7 +19,7 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   throw new Error("Missing Supabase configuration for customer-notify edge function");
 }
 
-type NotificationType = "status" | "issue" | "estimate" | "history";
+type NotificationType = "status" | "issue" | "estimate" | "history" | "approval";
 
 type NotificationPayload = {
   type?: NotificationType;
@@ -29,6 +29,7 @@ type NotificationPayload = {
   subject?: string;
   message?: string;
   link?: string;
+  channels?: string[];
 };
 
 const sendEmail = async (to: string, subject: string, html: string) => {
@@ -103,7 +104,9 @@ const buildEmailTemplate = (type: NotificationType, message: string, link?: stri
         ? "Nauja nuotrauka iš serviso"
         : type === "estimate"
           ? "Naujas sąmatos pasiūlymas"
-          : "Serviso istorijos eksportas";
+          : type === "approval"
+            ? "Patvirtinkite papildomus darbus"
+            : "Serviso istorijos eksportas";
 
   const action = link ? `<p><a href="${link}" style="color:#2563eb;">Peržiūrėti detales</a></p>` : "";
   return `<h2>${header}</h2><p>${message}</p>${action}`;
@@ -132,7 +135,7 @@ export const handler = async (req: Request): Promise<Response> => {
     });
   }
 
-  const { type = "status", customerId, orgId, workOrderId, message, subject, link } = payload;
+  const { type = "status", customerId, orgId, workOrderId, message, subject, link, channels } = payload;
 
   if (!customerId || !orgId) {
     return new Response(JSON.stringify({ error: "Missing customerId or orgId" }), {
@@ -169,12 +172,26 @@ export const handler = async (req: Request): Promise<Response> => {
 
   const results: Record<string, unknown> = {};
 
-  if (preferences?.notify_email !== false && customer.email) {
+  const explicitChannels = Array.isArray(channels) ? channels : null;
+
+  const shouldSendEmail = explicitChannels
+    ? explicitChannels.includes("email")
+    : preferences?.notify_email !== false;
+
+  const shouldSendSms = explicitChannels
+    ? explicitChannels.includes("sms")
+    : preferences?.notify_sms !== false;
+
+  if (shouldSendEmail && customer.email) {
     results.email = await sendEmail(customer.email, emailSubject, html);
   }
 
-  if (preferences?.notify_sms !== false && customer.phone) {
+  if (shouldSendSms && customer.phone) {
     results.sms = await sendSms(customer.phone, emailMessage.slice(0, 150));
+  }
+
+  if (explicitChannels?.includes("call") && customer.phone) {
+    results.call = { queued: true, phone: customer.phone };
   }
 
   if (preferences?.notify_whatsapp && customer.phone) {

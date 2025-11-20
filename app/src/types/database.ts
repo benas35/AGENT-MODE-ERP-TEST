@@ -23,13 +23,18 @@ export type Appointment = Database['public']['Tables']['appointments']['Row'];
 export type Attachment = Database['public']['Tables']['attachments']['Row'];
 export type ServiceReminder = Database['public']['Tables']['service_reminders']['Row'];
 export type Notification = Database['public']['Tables']['notifications']['Row'];
+export type UserNotificationPreference = Database['public']['Tables']['user_notification_preferences']['Row'];
 export type AuditLog = Database['public']['Tables']['audit_log']['Row'];
 export type NumberSequence = Database['public']['Tables']['number_sequences']['Row'];
 export type FeatureFlag = Database['public']['Tables']['feature_flags']['Row'];
+export type WorkOrderNote = Database['public']['Tables']['work_order_notes']['Row'];
+export type WorkOrderActivity = Database['public']['Tables']['work_order_activity']['Row'];
+export type WorkOrderApproval = Database['public']['Tables']['work_order_approvals']['Row'];
 
 // Database enum types
 export type AppRole = Database['public']['Enums']['app_role'];
 export type WorkOrderStatus = Database['public']['Enums']['work_order_status'];
+export type WorkOrderApprovalStatus = Database['public']['Enums']['work_order_approval_status'];
 export type EstimateStatus = Database['public']['Enums']['estimate_status'];
 export type InvoiceStatus = Database['public']['Enums']['invoice_status'];
 export type PaymentMethod = Database['public']['Enums']['payment_method'];
@@ -59,7 +64,11 @@ export type AppointmentInsert = Database['public']['Tables']['appointments']['In
 export type AttachmentInsert = Database['public']['Tables']['attachments']['Insert'];
 export type ServiceReminderInsert = Database['public']['Tables']['service_reminders']['Insert'];
 export type NotificationInsert = Database['public']['Tables']['notifications']['Insert'];
+export type UserNotificationPreferenceInsert = Database['public']['Tables']['user_notification_preferences']['Insert'];
 export type AuditLogInsert = Database['public']['Tables']['audit_log']['Insert'];
+export type WorkOrderNoteInsert = Database['public']['Tables']['work_order_notes']['Insert'];
+export type WorkOrderActivityInsert = Database['public']['Tables']['work_order_activity']['Insert'];
+export type WorkOrderApprovalInsert = Database['public']['Tables']['work_order_approvals']['Insert'];
 
 // Update types for modifying existing records
 export type OrganizationUpdate = Database['public']['Tables']['organizations']['Update'];
@@ -84,7 +93,11 @@ export type AppointmentUpdate = Database['public']['Tables']['appointments']['Up
 export type AttachmentUpdate = Database['public']['Tables']['attachments']['Update'];
 export type ServiceReminderUpdate = Database['public']['Tables']['service_reminders']['Update'];
 export type NotificationUpdate = Database['public']['Tables']['notifications']['Update'];
+export type UserNotificationPreferenceUpdate = Database['public']['Tables']['user_notification_preferences']['Update'];
 export type AuditLogUpdate = Database['public']['Tables']['audit_log']['Update'];
+export type WorkOrderNoteUpdate = Database['public']['Tables']['work_order_notes']['Update'];
+export type WorkOrderActivityUpdate = Database['public']['Tables']['work_order_activity']['Update'];
+export type WorkOrderApprovalUpdate = Database['public']['Tables']['work_order_approvals']['Update'];
 
 // Extended types with relationships
 export interface CustomerWithVehicles extends Customer {

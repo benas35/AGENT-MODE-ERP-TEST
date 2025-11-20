@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Bell, Mail, MessageSquare, Phone } from 'lucide-react';
+import { sendCustomerNotification } from '@/lib/customerNotifications';
+import { supabase } from '@/integrations/supabase/client';
 
 interface NotifyCustomerModalProps {
   open: boolean;
@@ -16,6 +18,8 @@ interface NotifyCustomerModalProps {
   customerName: string;
   customerPhone?: string;
   customerEmail?: string;
+  customerId: string;
+  orgId: string;
   onNotificationSent?: () => void;
 }
 
@@ -27,6 +31,8 @@ export const NotifyCustomerModal: React.FC<NotifyCustomerModalProps> = ({
   customerName,
   customerPhone,
   customerEmail,
+  customerId,
+  orgId,
   onNotificationSent,
 }) => {
   const { toast } = useToast();
@@ -81,37 +87,54 @@ export const NotifyCustomerModal: React.FC<NotifyCustomerModalProps> = ({
     setIsSubmitting(true);
     
     try {
-      // Here you would typically call your API to send notifications
-      console.log('Sending customer notification:', {
+      const notificationType = messageType === 'approval_needed' ? 'approval' : 'status';
+
+      await sendCustomerNotification({
+        orgId,
+        customerId,
         workOrderId,
-        channels,
-        messageType,
+        type: notificationType,
         message,
-        customerPhone,
-        customerEmail,
+        subject:
+          notificationType === 'approval'
+            ? `Work order ${workOrderNumber} requires your approval`
+            : `Update for work order ${workOrderNumber}`,
+        channels,
       });
 
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const channelNames = channels.map(c => {
-        switch (c) {
-          case 'sms': return 'SMS';
-          case 'email': return 'Email';
-          case 'call': return 'Phone Call';
-          default: return c;
-        }
-      }).join(' & ');
+      await supabase.rpc('log_work_order_activity', {
+        p_work_order_id: workOrderId,
+        p_action: 'customer.notified',
+        p_details: {
+          channels,
+          messageType,
+          preview: message.slice(0, 140),
+        },
+      });
+
+      const channelNames = channels
+        .map((c) => {
+          switch (c) {
+            case 'sms':
+              return 'SMS';
+            case 'email':
+              return 'Email';
+            case 'call':
+              return 'Phone Call';
+            default:
+              return c;
+          }
+        })
+        .join(' & ');
 
       toast({
-        title: "Notification Sent",
-        description: `Customer notified via ${channelNames}`,
+        title: 'Notification sent',
+        description: channelNames ? `Customer notified via ${channelNames}` : 'Customer notified.',
       });
-      
+
       onNotificationSent?.();
       onOpenChange(false);
-      
-      // Reset form
+
       setChannels([]);
       setCustomMessage('');
       setMessageType('status_update');

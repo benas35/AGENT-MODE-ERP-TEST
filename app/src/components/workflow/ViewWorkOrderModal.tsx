@@ -24,6 +24,13 @@ import { VehicleMediaPreview } from '@/features/vehicle-media/VehicleMediaPrevie
 import { VehiclePhotoGallery } from '@/components/vehicles/VehiclePhotoGallery';
 import { WorkOrderPhotoSection } from './WorkOrderPhotoSection';
 import { TechnicianChatSheet } from '@/features/chat/TechnicianChatSheet';
+import { NotifyCustomerModal } from './NotifyCustomerModal';
+import { WorkOrderNotesPanel } from './WorkOrderNotesPanel';
+import { WorkOrderActivityFeed } from './WorkOrderActivityFeed';
+import { WorkOrderTimeTrackingCard } from './WorkOrderTimeTrackingCard';
+import { WorkOrderApprovalPanel } from './WorkOrderApprovalPanel';
+import { useWorkOrderActivity } from '@/hooks/useWorkOrderActivity';
+import { useAuth } from '@/hooks/useAuth';
 
 interface WorkOrder {
   id: string;
@@ -36,6 +43,7 @@ interface WorkOrder {
   stage_entered_at?: string;
   sla_due_at?: string;
   created_at: string;
+  customer_id: string;
   vehicle_id?: string;
   estimated_hours?: number;
   actual_hours?: number;
@@ -45,7 +53,13 @@ interface WorkOrder {
     last_name: string;
     phone?: string;
     email?: string;
-    address?: any;
+    address?: {
+      line1?: string | null;
+      line2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postal_code?: string | null;
+    } | null;
   };
   vehicle?: {
     year?: number;
@@ -77,19 +91,28 @@ export const ViewWorkOrderModal: React.FC<ViewWorkOrderModalProps> = ({
   if (!workOrder) return null;
 
   const [mediaVehicleId, setMediaVehicleId] = useState<string | null>(null);
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const { profile } = useAuth();
+  const { activity, loading: activityLoading, refresh: refreshActivity } = useWorkOrderActivity(workOrder.id);
 
-  const customerName = workOrder.customer 
+  const customerName = workOrder.customer
     ? `${workOrder.customer.first_name} ${workOrder.customer.last_name}`
     : 'Unknown Customer';
-  
+
   const vehicleInfo = workOrder.vehicle
     ? `${workOrder.vehicle.year || ''} ${workOrder.vehicle.make} ${workOrder.vehicle.model}`.trim()
     : 'No Vehicle';
 
-  const technicianName = workOrder.technician?.display_name || 
+  const technicianName = workOrder.technician?.display_name ||
     (workOrder.technician?.first_name && workOrder.technician?.last_name
       ? `${workOrder.technician.first_name} ${workOrder.technician.last_name}`
       : 'Unassigned');
+
+  const customerEmail = workOrder.customer?.email ?? null;
+  const customerPhone = workOrder.customer?.phone ?? null;
+  const customerId = workOrder.customer_id;
+  const orgId = profile?.org_id ?? '';
+  const disableCustomerActions = !orgId;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -249,6 +272,13 @@ export const ViewWorkOrderModal: React.FC<ViewWorkOrderModalProps> = ({
             {workOrder.id && (
               <WorkOrderPhotoSection workOrderId={workOrder.id} />
             )}
+
+            <WorkOrderNotesPanel
+              workOrderId={workOrder.id}
+              onNoteAdded={refreshActivity}
+            />
+
+            <WorkOrderActivityFeed activity={activity} loading={activityLoading} />
           </div>
 
           {/* Sidebar */}
@@ -313,13 +343,24 @@ export const ViewWorkOrderModal: React.FC<ViewWorkOrderModalProps> = ({
                 <CardTitle className="text-base">Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button variant="outline" size="sm" className="w-full justify-start">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  disabled={disableCustomerActions}
+                >
                   <Phone className="w-4 h-4 mr-2" />
                   Call Customer
                 </Button>
-                <Button variant="outline" size="sm" className="w-full justify-start">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => setNotifyOpen(true)}
+                  disabled={disableCustomerActions}
+                >
                   <Mail className="w-4 h-4 mr-2" />
-                  Send Update
+                  Notify Customer
                 </Button>
                 <Button variant="outline" size="sm" className="w-full justify-start">
                   <Wrench className="w-4 h-4 mr-2" />
@@ -327,9 +368,38 @@ export const ViewWorkOrderModal: React.FC<ViewWorkOrderModalProps> = ({
                 </Button>
               </CardContent>
             </Card>
+
+            {orgId && (
+              <WorkOrderApprovalPanel
+                workOrderId={workOrder.id}
+                orgId={orgId}
+                customerId={customerId}
+                customerName={customerName}
+                customerEmail={customerEmail}
+                customerPhone={customerPhone}
+                onApprovalRequested={refreshActivity}
+              />
+            )}
+
+            <WorkOrderTimeTrackingCard
+              workOrderId={workOrder.id}
+              onTimeLogged={refreshActivity}
+            />
           </div>
         </div>
       </DialogContent>
+      <NotifyCustomerModal
+        open={notifyOpen}
+        onOpenChange={setNotifyOpen}
+        workOrderId={workOrder.id}
+        workOrderNumber={workOrder.work_order_number}
+        customerName={customerName}
+        customerPhone={customerPhone || undefined}
+        customerEmail={customerEmail || undefined}
+        customerId={customerId}
+        orgId={orgId}
+        onNotificationSent={refreshActivity}
+      />
       <VehiclePhotoGallery
         vehicleId={mediaVehicleId ?? ''}
         open={!!mediaVehicleId}
