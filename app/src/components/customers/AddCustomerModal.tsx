@@ -15,6 +15,8 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { LoadingButton } from "@/components/shared/LoadingButton";
+import { summarizeZodErrors } from "@/lib/validation";
+import { customerSchema, vehicleSchema } from "@/lib/validationSchemas";
 
 interface AddCustomerModalProps {
   open: boolean;
@@ -101,6 +103,23 @@ export const AddCustomerModal = ({
   const handleSubmit = async () => {
     if (!canSave || saving) return;
 
+    const validatedCustomer = customerSchema.safeParse(customer);
+    const validatedVehicle = associateVehicle ? vehicleSchema.safeParse(vehicle) : null;
+
+    if (!validatedCustomer.success || (associateVehicle && validatedVehicle && !validatedVehicle.success)) {
+      const issues = [
+        ...(validatedCustomer.success ? [] : validatedCustomer.error.issues),
+        ...(validatedVehicle && !validatedVehicle.success ? validatedVehicle.error.issues : []),
+      ];
+
+      toast({
+        title: "Validation failed",
+        description: summarizeZodErrors(issues),
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -113,13 +132,15 @@ export const AddCustomerModal = ({
       const user = userResponse.data.user;
       if (!orgId || !user) throw new Error("User session expired");
 
-      const addressPayload = customer.line1
+      const customerPayload = validatedCustomer.data;
+
+      const addressPayload = customerPayload.line1
         ? {
-            line1: customer.line1,
-            line2: customer.line2 || undefined,
-            city: customer.city || undefined,
-            state: customer.state || undefined,
-            postal_code: customer.postalCode || undefined,
+            line1: customerPayload.line1,
+            line2: customerPayload.line2 || undefined,
+            city: customerPayload.city || undefined,
+            state: customerPayload.state || undefined,
+            postal_code: customerPayload.postalCode || undefined,
           }
         : null;
 
@@ -128,15 +149,15 @@ export const AddCustomerModal = ({
         .insert({
           org_id: orgId,
           created_by: user.id,
-          first_name: customer.firstName.trim(),
-          last_name: customer.lastName.trim(),
-          email: customer.email.trim() || null,
-          phone: customer.phone.trim() || null,
-          mobile: customer.mobile.trim() || null,
+          first_name: customerPayload.firstName,
+          last_name: customerPayload.lastName,
+          email: customerPayload.email || null,
+          phone: customerPayload.phone || null,
+          mobile: customerPayload.mobile || null,
           address: addressPayload,
-          marketing_consent_email: customer.marketingEmail,
-          marketing_consent_sms: customer.marketingSms,
-          notes: customer.notes.trim() || null,
+          marketing_consent_email: customerPayload.marketingEmail,
+          marketing_consent_sms: customerPayload.marketingSms,
+          notes: customerPayload.notes || null,
         })
         .select("id")
         .single();
@@ -144,21 +165,21 @@ export const AddCustomerModal = ({
       if (customerError) throw customerError;
       if (!createdCustomer) throw new Error("Customer creation failed");
 
-      if (associateVehicle) {
-        const year = Number(vehicle.year);
-        const mileage = Number(vehicle.mileage);
+      if (associateVehicle && validatedVehicle?.success) {
+        const year = Number(validatedVehicle.data.year);
+        const mileage = Number(validatedVehicle.data.mileage);
 
         const { error: vehicleError } = await supabase.from("vehicles").insert({
           org_id: orgId,
           customer_id: createdCustomer.id,
-          make: vehicle.make.trim(),
-          model: vehicle.model.trim(),
+          make: validatedVehicle.data.make,
+          model: validatedVehicle.data.model,
           year: Number.isFinite(year) && year > 1900 ? year : null,
-          vin: vehicle.vin.trim() || null,
-          license_plate: vehicle.licensePlate.trim() || null,
-          color: vehicle.color.trim() || null,
+          vin: validatedVehicle.data.vin || null,
+          license_plate: validatedVehicle.data.licensePlate || null,
+          color: validatedVehicle.data.color || null,
           mileage: Number.isFinite(mileage) && mileage > 0 ? mileage : null,
-          notes: vehicle.notes.trim() || null,
+          notes: validatedVehicle.data.notes || null,
         });
 
         if (vehicleError) throw vehicleError;

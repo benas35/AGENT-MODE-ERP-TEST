@@ -191,9 +191,8 @@ export const AppointmentCard = ({
                 <div
                   className={cn(
                     "absolute bottom-3 right-3 flex flex-wrap justify-end gap-1",
-                    "pointer-events-none opacity-0 transition-opacity duration-150",
-                    "group-hover:pointer-events-auto group-hover:opacity-100",
-                    "group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                    "transition-opacity duration-150",
+                    "md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100"
                   )}
                 >
                   {quickActionTargets.map((action) => (

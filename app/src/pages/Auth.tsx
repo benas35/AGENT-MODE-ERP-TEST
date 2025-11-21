@@ -27,9 +27,11 @@ const signUpSchema = z.object({
 });
 
 export default function Auth() {
-  const { user, loading, signIn, signUp } = useAuth();
+  const { user, loading, signIn, signUp, requestPasswordReset } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [signInEmail, setSignInEmail] = useState("");
+  const [resetting, setResetting] = useState(false);
 
   // Redirect if already authenticated
   if (user && !loading) {
@@ -52,7 +54,7 @@ export default function Auth() {
 
     const formData = new FormData(e.currentTarget);
     const data = {
-      email: formData.get('email') as string,
+      email: (formData.get('email') as string) || signInEmail,
       password: formData.get('password') as string,
     };
 
@@ -143,13 +145,15 @@ export default function Auth() {
                   <Label htmlFor="signin-email">Email</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                    <Input
+                      <Input
                       id="signin-email"
                       name="email"
                       type="email"
                       placeholder="john@example.com"
                       className="pl-10"
                       required
+                      value={signInEmail}
+                      onChange={(event) => setSignInEmail(event.target.value)}
                     />
                   </div>
                   {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
@@ -171,12 +175,25 @@ export default function Auth() {
                   {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
                 </div>
 
-                <Button 
-                  type="submit" 
-                  className="w-full" 
+                <Button
+                  type="submit"
+                  className="w-full"
                   disabled={isLoading}
                 >
                   {isLoading ? "Signing In..." : "Sign In"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="link"
+                  className="w-full"
+                  disabled={resetting || !signInEmail}
+                  onClick={async () => {
+                    setResetting(true);
+                    await requestPasswordReset(signInEmail);
+                    setResetting(false);
+                  }}
+                >
+                  {resetting ? "Sending reset..." : "Forgot password?"}
                 </Button>
               </form>
             </TabsContent>

@@ -5039,6 +5039,15 @@ dvi_signatures
         Args: { p_thread_id: string; p_message_ids?: string[] | null }
         Returns: number
       }
+      reporting_overview: {
+        Args: {
+          p_start?: string
+          p_end?: string
+          p_period?: string
+          p_location_id?: string | null
+        }
+        Returns: Json
+      }
       get_workflow_metrics: {
         Args: {
           p_date_from?: string

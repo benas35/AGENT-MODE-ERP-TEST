@@ -464,6 +464,11 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
     }
 
     const channelName = `planner-appointments-${orgId}-${dateKey}`;
+    const subscriptionFilter = [
+      `org_id=eq.${orgId}`,
+      `starts_at=gte.${range.start}`,
+      `starts_at=lt.${range.end}`,
+    ].join(',');
 
     if (typeof supabase.getChannels === "function") {
       for (const existing of supabase.getChannels()) {
@@ -480,7 +485,7 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       .channel(channelName)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "appointments", filter: `org_id=eq.${orgId}` },
+        { event: "*", schema: "public", table: "appointments", filter: subscriptionFilter },
         () => {
           queryClient.invalidateQueries({ queryKey });
         }

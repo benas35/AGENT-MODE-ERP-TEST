@@ -14,6 +14,7 @@ import { useUploadQueue, UploadQueueItem } from "@/features/uploads/useUploadQue
 import { Upload, ImagePlus, Info, RotateCcw, X } from "lucide-react";
 import { VehicleMediaKind } from "@/hooks/useVehicleMedia";
 import { SuccessCheck } from "@/components/feedback/SuccessCheck";
+import { validateFiles } from "@/lib/fileValidation";
 
 interface VehicleMediaUploaderProps {
   vehicleId: string;
@@ -163,19 +164,31 @@ export const VehicleMediaUploader: React.FC<VehicleMediaUploaderProps> = ({
 
   const handleFiles = useCallback(
     (incoming: FileList | File[]) => {
-      const files = Array.from(incoming).filter((file) => file.type.startsWith("image/"));
+      const { valid, rejected } = validateFiles(incoming, {
+        allowedMimePrefixes: ["image/"],
+        allowedExtensions: [".jpg", ".jpeg", ".png", ".webp", ".heic"],
+        maxFileSizeMb: 12,
+      });
 
-      if (!files.length) {
+      if (rejected.length) {
+        toast({
+          title: "Some files were rejected",
+          description: rejected.join("; "),
+          variant: "destructive",
+        });
+      }
+
+      if (!valid.length) {
         toast({
           title: "No compatible files",
-          description: "Only image files can be uploaded",
+          description: "Only image files under 12MB are allowed",
           variant: "destructive",
         });
         return;
       }
 
       enqueue(
-        files.map((file) => ({
+        valid.map((file) => ({
           fileName: file.name,
           size: file.size,
           payload: file,

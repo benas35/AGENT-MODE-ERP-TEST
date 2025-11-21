@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { WorkOrderMediaCategory } from "@/hooks/useWorkOrderMedia";
+import { validateFiles } from "@/lib/fileValidation";
+import { useToast } from "@/hooks/use-toast";
 
 export type AnnotationTool = "pen" | "arrow" | "circle" | "text";
 
@@ -184,6 +186,7 @@ export const TechnicianPhotoCapture: React.FC<TechnicianPhotoCaptureProps> = ({
   const [pendingTextPosition, setPendingTextPosition] = useState<Point | null>(null);
   const [pendingText, setPendingText] = useState("");
   const [isDrawing, setIsDrawing] = useState(false);
+  const { toast } = useToast();
 
   const hasImage = Boolean(selectedImage);
 
@@ -246,13 +249,31 @@ export const TechnicianPhotoCapture: React.FC<TechnicianPhotoCaptureProps> = ({
     reader.readAsDataURL(file);
   }, []);
 
-  const handleFileInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && file.type.startsWith("image/")) {
-      handleFile(file);
-    }
-    event.target.value = "";
-  }, [handleFile]);
+  const handleFileInput = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const incoming = event.target.files ?? [];
+      const { valid, rejected } = validateFiles(incoming, {
+        allowedMimePrefixes: ["image/"],
+        allowedExtensions: [".jpg", ".jpeg", ".png", ".webp", ".heic"],
+        maxFileSizeMb: 12,
+      });
+
+      if (rejected.length) {
+        toast({
+          title: "Invalid file",
+          description: rejected.join("; "),
+          variant: "destructive",
+        });
+      }
+
+      const file = valid[0];
+      if (file) {
+        handleFile(file);
+      }
+      event.target.value = "";
+    },
+    [handleFile, toast],
+  );
 
   const loadImage = useCallback(() => {
     if (!selectedImage || !canvasRef.current) return;

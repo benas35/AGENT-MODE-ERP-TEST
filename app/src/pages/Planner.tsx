@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { addDays, startOfDay } from "date-fns";
 import { CalendarIcon, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,9 @@ import { ORG_TIMEZONE } from "@/features/planner/types";
 import { formatInOrgTimezone, toOrgZonedTime } from "@/lib/timezone";
 import { toast } from "@/hooks/use-toast";
 import { mapErrorToFriendlyMessage, type FriendlyErrorMessage } from "@/lib/errorHandling";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PlannerMobileTimeline } from "@/features/planner/PlannerMobileTimeline";
 
 type DrawerState =
   | { mode: "closed" }
@@ -43,6 +46,8 @@ const Planner = () => {
   const [drawerState, setDrawerState] = useState<DrawerState>({ mode: "closed" });
   const [activeAppointmentId, setActiveAppointmentId] = useState<string | null>(null);
   const [isResourceDrawerOpen, setIsResourceDrawerOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"board" | "timeline">("board");
+  const isMobile = useIsMobile();
 
   const techniciansQuery = usePlannerTechnicians();
   const baysQuery = usePlannerBays();
@@ -51,6 +56,14 @@ const Planner = () => {
 
   const isLoading = techniciansQuery.isLoading || appointmentsQuery.isLoading;
   const isMutating = appointmentsQuery.isMutating;
+
+  useEffect(() => {
+    setViewMode((current) => {
+      if (isMobile && current !== "timeline") return "timeline";
+      if (!isMobile && current === "timeline") return "board";
+      return current;
+    });
+  }, [isMobile]);
 
   const dateLabel = formatInOrgTimezone(selectedDate, "EEEE, MMM d");
   const bayOptions = useMemo(() => {
@@ -157,11 +170,11 @@ const Planner = () => {
   );
 
   return (
-    <div className="flex h-full flex-col gap-6 p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+    <div className="flex h-full flex-col gap-6 p-4 sm:p-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Planner</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground max-w-3xl">
             Drag appointments to adjust times, reassign technicians, or resize durations in fifteen-minute increments.
           </p>
         </div>
@@ -223,27 +236,59 @@ const Planner = () => {
             ))}
           </SelectContent>
         </Select>
+        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "board" | "timeline")}
+          className="ml-auto">
+          <TabsList className="h-9">
+            <TabsTrigger value="board" className="text-xs sm:text-sm">Board</TabsTrigger>
+            <TabsTrigger value="timeline" className="text-xs sm:text-sm">Timeline</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
-      <div className="relative flex-1 overflow-hidden rounded-lg border bg-card">
-        <PlannerBoard
-          date={selectedDate}
-          technicians={techniciansQuery.data ?? []}
-          appointments={appointmentsQuery.appointments}
-          activeBayId={selectedBayId}
-          isLoading={isLoading && !appointmentsQuery.appointments.length}
-          onAppointmentMove={appointmentsQuery.moveAppointment}
-          onAppointmentResize={appointmentsQuery.resizeAppointment}
-          onAppointmentClick={(id) => setActiveAppointmentId(id)}
-          onSlotCreate={({ technicianId, bayId, startsAt, endsAt }) =>
-            setDrawerState({ mode: "create", technicianId, bayId, startsAt, endsAt })
-          }
-          onStatusChange={({ id, status }) => appointmentsQuery.updateStatus(id, status)}
-          disableStatusActions={appointmentsQuery.isStatusMutating}
-          canSchedule={appointmentsQuery.canSchedule}
-          laneOverlays={laneOverlays}
-        />
-      </div>
+      <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "board" | "timeline")}
+        className="flex-1 flex flex-col">
+        <TabsContent value="board" className="flex-1">
+          <div className="relative h-full overflow-hidden rounded-lg border bg-card shadow-sm">
+            <div className="h-full overflow-auto">
+              <div className="min-w-[720px] md:min-w-0">
+                <PlannerBoard
+                  date={selectedDate}
+                  technicians={techniciansQuery.data ?? []}
+                  appointments={appointmentsQuery.appointments}
+                  activeBayId={selectedBayId}
+                  isLoading={isLoading && !appointmentsQuery.appointments.length}
+                  onAppointmentMove={appointmentsQuery.moveAppointment}
+                  onAppointmentResize={appointmentsQuery.resizeAppointment}
+                  onAppointmentClick={(id) => setActiveAppointmentId(id)}
+                  onSlotCreate={({ technicianId, bayId, startsAt, endsAt }) =>
+                    setDrawerState({ mode: "create", technicianId, bayId, startsAt, endsAt })
+                  }
+                  onStatusChange={({ id, status }) => appointmentsQuery.updateStatus(id, status)}
+                  disableStatusActions={appointmentsQuery.isStatusMutating}
+                  canSchedule={appointmentsQuery.canSchedule}
+                  laneOverlays={laneOverlays}
+                />
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="timeline" className="flex-1">
+          <div className="rounded-lg border bg-card p-3 shadow-sm">
+            <PlannerMobileTimeline
+              date={selectedDate}
+              appointments={appointmentsQuery.appointments}
+              technicians={techniciansQuery.data ?? []}
+              activeBayId={selectedBayId}
+              isLoading={isLoading && !appointmentsQuery.appointments.length}
+              onSelectAppointment={(id) => setActiveAppointmentId(id)}
+              onCreate={({ startsAt, endsAt }) =>
+                setDrawerState({ mode: "create", technicianId: null, bayId: selectedBayId, startsAt, endsAt })
+              }
+            />
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <EditAppointmentDrawer
         open={drawerState.mode !== "closed"}

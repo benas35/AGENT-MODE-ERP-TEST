@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { 
+import {
   Settings as SettingsIcon,
   Building,
   Users,
@@ -28,9 +28,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
+import { useAuth } from "@/hooks/useAuth";
+import { useTwoFactor } from "@/features/auth/useTwoFactor";
 
 export default function Settings() {
   const [loading, setLoading] = useState(false);
+  const { user, requestPasswordReset, refreshSession } = useAuth();
+  const [resetEmail, setResetEmail] = useState(user?.email ?? "");
+  const [resetting, setResetting] = useState(false);
 
   // Organization settings state
   const [orgSettings, setOrgSettings] = useState({
@@ -59,6 +64,21 @@ export default function Settings() {
     dirty: preferencesDirty,
   } = useNotificationPreferences();
 
+  const { enroll, verify, disable, listFactors, enrolling, verifying, loadingFactors } = useTwoFactor();
+  const [factors, setFactors] = useState<any[]>([]);
+  const [pendingFactor, setPendingFactor] = useState<{ id: string; qr?: string | null; secret?: string | null } | null>(null);
+  const [factorCode, setFactorCode] = useState("");
+  const activeFactor = factors.find((factor) => factor.status === "verified" || factor.status === "verified_factor");
+
+  useEffect(() => {
+    listFactors().then((data) => {
+      if (data) {
+        const totp = (data as any).totp ?? (data as any).factors ?? [];
+        setFactors(totp);
+      }
+    });
+  }, [listFactors]);
+
   // User management state
   const [users] = useState([
     { id: 1, name: 'John Doe', email: 'john@autorepairpro.com', role: 'OWNER', active: true },
@@ -78,6 +98,51 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleStartTwoFactor = async () => {
+    const enrollment = await enroll();
+    if (!enrollment) return;
+
+    setPendingFactor({
+      id: enrollment.id,
+      qr: enrollment.totp?.qr_code ?? null,
+      secret: enrollment.totp?.secret ?? null,
+    });
+  };
+
+  const handleVerifyTwoFactor = async () => {
+    if (!pendingFactor?.id || !factorCode) return;
+    const success = await verify(pendingFactor.id, factorCode);
+    if (success) {
+      setPendingFactor(null);
+      setFactorCode("");
+      listFactors().then((data) => {
+        if (data) {
+          const totp = (data as any).totp ?? (data as any).factors ?? [];
+          setFactors(totp);
+        }
+      });
+    }
+  };
+
+  const handleDisableTwoFactor = async (factorId: string) => {
+    const success = await disable(factorId);
+    if (success) {
+      listFactors().then((data) => {
+        if (data) {
+          const totp = (data as any).totp ?? (data as any).factors ?? [];
+          setFactors(totp);
+        }
+      });
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!resetEmail) return;
+    setResetting(true);
+    await requestPasswordReset(resetEmail);
+    setResetting(false);
   };
 
   const getRoleBadge = (role: string) => {
@@ -560,19 +625,129 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Two-Factor Authentication</Label>
-                    <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
+                <div className="space-y-2 rounded-lg border p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <Label>Two-Factor Authentication</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Add an extra layer of security to your account with TOTP codes.
+                      </p>
+                      {activeFactor && (
+                        <p className="text-xs text-green-600 mt-1">2FA enabled for this account</p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {activeFactor ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDisableTwoFactor(activeFactor.id)}
+                          disabled={verifying}
+                        >
+                          Disable 2FA
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleStartTwoFactor}
+                          disabled={enrolling || Boolean(pendingFactor)}
+                        >
+                          {enrolling ? "Starting..." : "Enable 2FA"}
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => listFactors().then((data) => {
+                          if (data) {
+                            const totp = (data as any).totp ?? (data as any).factors ?? [];
+                            setFactors(totp);
+                          }
+                        })}
+                        disabled={loadingFactors}
+                      >
+                        {loadingFactors ? "Refreshing..." : "Refresh status"}
+                      </Button>
+                    </div>
                   </div>
-                  <Button variant="outline">Enable 2FA</Button>
+
+                  {pendingFactor && (
+                    <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">Scan this QR code with your authenticator app</p>
+                        {pendingFactor.qr ? (
+                          <img src={pendingFactor.qr} alt="TOTP QR" className="max-w-[220px] rounded-md border" />
+                        ) : (
+                          <p className="text-xs">QR unavailable. Use secret: {pendingFactor.secret}</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="totp-code">Verify code</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="totp-code"
+                            value={factorCode}
+                            onChange={(e) => setFactorCode(e.target.value)}
+                            placeholder="Enter 6-digit code"
+                          />
+                          <Button onClick={handleVerifyTwoFactor} disabled={verifying || !factorCode}>
+                            {verifying ? "Verifying" : "Confirm"}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Codes expire every 30 seconds.</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2 rounded-lg border p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Password reset</Label>
+                        <p className="text-sm text-muted-foreground">Send a reset email and test the recovery path.</p>
+                      </div>
+                      <Badge variant="outline">User flow</Badge>
+                    </div>
+                    <Input
+                      type="email"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      placeholder="user@example.com"
+                    />
+                    <div className="flex gap-2">
+                      <Button onClick={handlePasswordReset} disabled={resetting || !resetEmail}>
+                        {resetting ? "Sending..." : "Send reset link"}
+                      </Button>
+                      <Button variant="secondary" onClick={refreshSession} size="sm">
+                        Refresh session
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 rounded-lg border p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Session protection</Label>
+                        <p className="text-sm text-muted-foreground">Force refresh tokens and audit access.</p>
+                      </div>
+                      <Badge variant="outline">Isolation</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Sessions auto-refresh before expiration and sign out when refresh fails to prevent stale access.
+                    </p>
+                    <Button variant="outline" size="sm" onClick={refreshSession}>
+                      Run manual refresh
+                    </Button>
+                  </div>
+                </div>
+
                 <Separator />
-                
+
                 <div className="space-y-4">
                   <h3 className="font-medium">Data & Privacy</h3>
-                  
+
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label>Activity Logging</Label>
@@ -580,7 +755,7 @@ export default function Settings() {
                     </div>
                     <Switch defaultChecked />
                   </div>
-                  
+
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label>Data Retention</Label>
@@ -589,12 +764,12 @@ export default function Settings() {
                     <Switch defaultChecked />
                   </div>
                 </div>
-                
+
                 <Separator />
-                
+
                 <div className="space-y-4">
                   <h3 className="font-medium">API Access</h3>
-                  
+
                   <div className="space-y-3">
                     <div className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
@@ -608,7 +783,7 @@ export default function Settings() {
                         </Button>
                       </div>
                     </div>
-                    
+
                     <Button variant="outline">
                       <Key className="mr-2 h-4 w-4" />
                       Generate New API Key

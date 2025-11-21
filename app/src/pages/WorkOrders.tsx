@@ -98,42 +98,29 @@ export default function WorkOrders() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [viewWorkOrder, setViewWorkOrder] = useState<WorkOrderType | null>(null);
   const [editingWorkOrderId, setEditingWorkOrderId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const { from: dateFrom, to: dateTo } = useMemo(buildDateRange, []);
+  const activeStatus = tabStatusMap[activeTab];
+  const pageSize = 10;
 
-  const { workOrders, loading, error, refreshWorkOrders } = useWorkOrders({
+  const { workOrders, loading, error, refreshWorkOrders, totalPages } = useWorkOrders({
     dateFrom,
     dateTo,
+    status: activeStatus,
+    search: searchQuery,
+    page,
+    pageSize,
   });
 
-  const filterWorkOrders = (tab: TabKey) => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-    const statusFilter = tabStatusMap[tab];
+  const handleTabChange = (tab: TabKey) => {
+    setActiveTab(tab);
+    setPage(1);
+  };
 
-    return workOrders.filter((workOrder) => {
-      const status = normalizeStatus(workOrder.status);
-      if (statusFilter && status !== statusFilter) {
-        return false;
-      }
-
-      if (!normalizedSearch) {
-        return true;
-      }
-
-      const searchTargets = [
-        workOrder.work_order_number,
-        workOrder.title,
-        workOrder.description,
-        workOrder.customer ? `${workOrder.customer.first_name} ${workOrder.customer.last_name}` : "",
-        workOrder.customer?.phone,
-        workOrder.vehicle ? `${workOrder.vehicle.make} ${workOrder.vehicle.model}` : "",
-        workOrder.vehicle?.license_plate,
-      ];
-
-      return searchTargets.some((target) =>
-        typeof target === "string" && target.toLowerCase().includes(normalizedSearch)
-      );
-    });
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setPage(1);
   };
 
   const tabCounts = useMemo(() => {
@@ -345,7 +332,7 @@ export default function WorkOrders() {
             <Input
               placeholder="Search by work order number, customer, vehicle, or description..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10"
             />
           </div>
@@ -363,7 +350,7 @@ export default function WorkOrders() {
       )}
 
       {/* Status Tabs */}
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)}>
+      <Tabs value={activeTab} onValueChange={(value) => handleTabChange(value as TabKey)}>
         <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="all" className="flex items-center gap-2">
             All
@@ -392,29 +379,49 @@ export default function WorkOrders() {
         </TabsList>
 
         <TabsContent value="all" className="space-y-4">
-          {renderWorkOrderList(filterWorkOrders("all"))}
+          {renderWorkOrderList(workOrders)}
         </TabsContent>
 
         <TabsContent value="scheduled" className="space-y-4">
-          {renderWorkOrderList(filterWorkOrders("scheduled"))}
+          {renderWorkOrderList(workOrders)}
         </TabsContent>
 
         <TabsContent value="in-progress" className="space-y-4">
-          {renderWorkOrderList(filterWorkOrders("in-progress"))}
+          {renderWorkOrderList(workOrders)}
         </TabsContent>
 
         <TabsContent value="waiting-parts" className="space-y-4">
-          {renderWorkOrderList(filterWorkOrders("waiting-parts"))}
+          {renderWorkOrderList(workOrders)}
         </TabsContent>
 
         <TabsContent value="ready" className="space-y-4">
-          {renderWorkOrderList(filterWorkOrders("ready"))}
+          {renderWorkOrderList(workOrders)}
         </TabsContent>
 
         <TabsContent value="completed" className="space-y-4">
-          {renderWorkOrderList(filterWorkOrders("completed"))}
+          {renderWorkOrderList(workOrders)}
         </TabsContent>
       </Tabs>
+
+      <div className="flex items-center justify-between pt-2">
+        <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={page === 1 || loading}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            disabled={page >= totalPages || loading}
+            onClick={() => setPage((current) => current + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
 
       <CreateWorkOrderModal
         open={isCreateModalOpen}
