@@ -91,6 +91,8 @@ npm run dev
    > Magic links and OTP sign-ins will fail without the entries above.
 4. After deployment, verify `https://YOUR-PROD-DOMAIN/health` responds with `OK` and that refreshing deep links such as `/planner` succeeds.
 
+5. For observability, set `VITE_SENTRY_DSN`, `VITE_SENTRY_ENV`, and `VITE_COMMIT_SHA` (from your CI commit SHA) so runtime errors and performance traces are shipped to Sentry. The app will render normally without them but production deployments should include the values.
+
 ### Local Boot & Auth Diagnostics
 
 - `BootGuard` (`app/src/app/BootGuard.tsx`) blocks rendering and shows a red panel if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` are missing.
@@ -184,6 +186,33 @@ To try the portal locally:
 1. Open `http://localhost:5173/portal` and request a magic link using the demo customer email (`jonas.jonaitis@email.com`).
 2. Copy the `token` returned from the `customer-portal` function logs and visit `http://localhost:5173/portal/session?token=<TOKEN>`.
 3. Review the work order status, send messages, and approve/decline the demo estimate.
+
+### Phase 7 – Reporting & Analytics
+
+Run the reporting migration to expose the new `reporting_overview` RPC and dashboards:
+
+```bash
+npx supabase db push --file supabase/migrations/20251012120000_phase7_reporting_analytics.sql
+```
+
+Seed a small data set (idempotent) to exercise the reporting widgets locally:
+
+```bash
+npx supabase db execute --file supabase/seeds/phase7_reporting_sample_data.sql
+```
+
+### Phase 11 – Deployment & Monitoring
+
+- **Sentry:** The app initializes Sentry when `VITE_SENTRY_DSN` is set, tagging environments via `VITE_SENTRY_ENV` and releases via `VITE_COMMIT_SHA`. Error boundaries capture React crashes and forward stack traces.
+- **Error boundaries:** Route-level boundaries are already wired; critical errors show a friendly fallback and emit telemetry.
+- **Backups:** Use `supabase/backups/run-backup.sh` (Supabase CLI required) to dump the database and push it to a storage bucket. Schedule nightly via cron/CI and run monthly restore tests to validate the dumps. See `supabase/backups/README.md` for steps.
+- **Uptime/performance monitoring:** Point your uptime monitor to `/health` and track API latency plus Supabase query stats in the project dashboard. Start with 99.9% availability targets and alert on error spikes or slow `reporting_overview` calls.
+
+Key metrics covered:
+- Sales: revenue by period, technician, and service mix
+- Operational: technician productivity, repair/cycle times, bay utilization, appointment patterns
+- Inventory: stock value, low-stock alerts, parts usage, supplier performance
+- Customers: lifetime value, top customers, and vehicle history
 
 ### Demo Accounts
 
@@ -358,3 +387,6 @@ This project is licensed under the MIT License.
 ## Support
 
 For support, please contact [your-email@example.com] or create an issue in the repository.
+## Documentation (Phase 12)
+- See `docs/USER_GUIDE.md` for the end-user and admin guides covering work order creation, appointments, inventory, invoicing, user management, settings, workflow customization, and API notes.
+- Keep the guide with your deployment runbooks and update it when enabling new integrations or stages.

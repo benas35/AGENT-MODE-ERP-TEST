@@ -24,6 +24,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
 
@@ -111,7 +112,7 @@ const navigationItems = [
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, isMobile } = useSidebar();
   const location = useLocation();
   const isCollapsed = state === "collapsed";
   
@@ -123,7 +124,7 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible={isMobile ? "offcanvas" : "icon"}>
       <SidebarContent>
         <div className="p-4 border-b border-border">
           {!isCollapsed && (
@@ -140,7 +141,7 @@ export function AppSidebar() {
             </div>
           )}
         </div>
-        
+
         <SidebarGroup>
           <SidebarGroupLabel>Main Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -163,6 +164,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarRail />
     </Sidebar>
   );
 }

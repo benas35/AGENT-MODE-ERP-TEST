@@ -7,6 +7,17 @@ export { z, zodResolver };
 export const stringNonEmpty = (message = "This field is required") =>
   z.string().trim().min(1, message);
 
+export const sanitizeText = (value: string | null | undefined) =>
+  (value ?? "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .trim();
+
+export const summarizeZodErrors = (issues: { path: (string | number)[]; message: string }[]) =>
+  issues
+    .map((issue) => `${issue.path.join(".") || "field"}: ${issue.message}`)
+    .join("; ");
+
 export const schemaResolver = <TSchema extends ZodTypeAny>(schema: TSchema) => zodResolver(schema);
 
 type SafeSubmitOptions<TValues> = {

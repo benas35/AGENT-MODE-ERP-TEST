@@ -13,9 +13,9 @@ export const ResizeHandle = ({ direction, onPointerDown }: ResizeHandleProps) =>
     aria-label={direction === "start" ? "Extend appointment earlier" : "Extend appointment later"}
     tabIndex={-1}
     className={cn(
-      "absolute left-3 right-3 h-2 cursor-ns-resize rounded-full bg-muted transition-opacity",
+      "absolute left-3 right-3 h-3 cursor-ns-resize rounded-full bg-muted",
       direction === "start" ? "top-1" : "bottom-1",
-      "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+      "opacity-100 md:opacity-0 md:focus-visible:opacity-100 md:group-hover:opacity-100"
     )}
     onPointerDown={onPointerDown}
   />

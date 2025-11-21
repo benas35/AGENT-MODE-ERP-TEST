@@ -2,6 +2,7 @@ import { Component, DependencyList, ErrorInfo, ReactNode, useEffect, useMemo, us
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { mapErrorToFriendlyMessage, formatErrorForDisplay } from "@/lib/errorHandling";
+import { reportError } from "@/lib/monitoring";
 import { useNavigate, useRouteError } from "react-router-dom";
 
 export interface ErrorBoundaryProps {
@@ -35,6 +36,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (import.meta.env.DEV) {
       console.error("ErrorBoundary caught error", error, errorInfo);
     }
+
+    reportError(error, {
+      boundary: this.props.name ?? "ApplicationBoundary",
+      componentStack: errorInfo?.componentStack,
+    });
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps) {

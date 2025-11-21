@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -44,69 +44,110 @@ export const useRealtimeWorkflow = (options: UseRealtimeWorkflowOptions) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const { toast } = useToast();
 
-  useEffect(() => {
-    // Initial fetch
-    const fetchWorkOrders = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const selectColumns = `
+    *,
+    customer:customers(first_name, last_name, phone),
+    vehicle:vehicles(year, make, model, license_plate),
+    technician:resources!work_orders_technician_id_fkey(id, name)
+  `;
 
-        let query = supabase
-          .from('work_orders')
-          .select(`
-            *,
-            customer:customers(first_name, last_name, phone),
-            vehicle:vehicles(year, make, model, license_plate),
-            technician:resources!work_orders_technician_id_fkey(id, name)
-          `)
-          .gte('created_at', options.dateFrom.toISOString())
-          .lte('created_at', options.dateTo.toISOString())
-          .order('created_at', { ascending: false });
+  const fetchWorkOrders = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        if (options.locationId) {
-          query = query.eq('location_id', options.locationId);
-        }
+      let query = supabase
+        .from('work_orders')
+        .select(selectColumns)
+        .gte('created_at', options.dateFrom.toISOString())
+        .lte('created_at', options.dateTo.toISOString())
+        .order('created_at', { ascending: false });
 
-        if (options.technicianId) {
-          query = query.eq('technician_id', options.technicianId);
-        }
-
-        const { data, error: fetchError } = await query;
-
-        if (fetchError) {
-          console.error('Error fetching work orders:', fetchError);
-          setError(fetchError.message);
-          return;
-        }
-
-        setWorkOrders((data || []) as WorkOrder[]);
-        setLastUpdate(new Date());
-      } catch (err) {
-        console.error('Error in fetchWorkOrders:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
+      if (options.locationId) {
+        query = query.eq('location_id', options.locationId);
       }
-    };
 
+      if (options.technicianId) {
+        query = query.eq('technician_id', options.technicianId);
+      }
+
+      const { data, error: fetchError } = await query;
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      setWorkOrders((data || []) as WorkOrder[]);
+      setLastUpdate(new Date());
+    } catch (err) {
+      console.error('Error in fetchWorkOrders:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, [options.dateFrom, options.dateTo, options.locationId, options.technicianId, selectColumns]);
+
+  const hydrateWorkOrder = useCallback(
+    async (workOrderId: string, prepend = false) => {
+      const { data, error: fetchError } = await supabase
+        .from('work_orders')
+        .select(selectColumns)
+        .eq('id', workOrderId)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('Error hydrating work order', fetchError);
+        return;
+      }
+
+      if (!data) return;
+
+      setWorkOrders((previous) => {
+        const withoutExisting = previous.filter((wo) => wo.id !== workOrderId);
+        return prepend ? [data as WorkOrder, ...withoutExisting] : [...withoutExisting, data as WorkOrder];
+      });
+      setLastUpdate(new Date());
+    },
+    [selectColumns]
+  );
+
+  useEffect(() => {
     fetchWorkOrders();
 
-    // Set up real-time subscription
+    const dateKey = `${options.dateFrom.toISOString()}-${options.dateTo.toISOString()}`;
+    const filterParts = [
+      `created_at=gte.${options.dateFrom.toISOString()}`,
+      `created_at=lte.${options.dateTo.toISOString()}`,
+    ];
+
+    if (options.locationId) {
+      filterParts.push(`location_id=eq.${options.locationId}`);
+    }
+
+    if (options.technicianId) {
+      filterParts.push(`technician_id=eq.${options.technicianId}`);
+    }
+
+    const subscriptionFilter = filterParts.join(',');
+    const channelName = `work-orders-realtime-${dateKey}-${options.locationId ?? 'all'}-${options.technicianId ?? 'all'}`;
+
+    setConnectionStatus('connecting');
+
     const workOrdersChannel = supabase
-      .channel('work-orders-realtime')
+      .channel(channelName)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'work_orders'
+          table: 'work_orders',
+          filter: subscriptionFilter || undefined,
         },
         (payload) => {
-          console.log('New work order created:', payload);
-          fetchWorkOrders(); // Refetch to get complete data with relations
-          
+          void hydrateWorkOrder(payload.new.id, true);
           toast({
             title: 'New Work Order',
             description: `Work Order #${payload.new.work_order_number} has been created`,
@@ -118,26 +159,19 @@ export const useRealtimeWorkflow = (options: UseRealtimeWorkflowOptions) => {
         {
           event: 'UPDATE',
           schema: 'public',
-          table: 'work_orders'
+          table: 'work_orders',
+          filter: subscriptionFilter || undefined,
         },
         (payload) => {
-          console.log('Work order updated:', payload);
-          
-          // Update local state optimistically
-          setWorkOrders(prev => prev.map(wo => 
-            wo.id === payload.new.id 
-              ? { ...wo, ...payload.new }
-              : wo
-          ));
-          
-          // Show notification for stage changes
+          void hydrateWorkOrder(payload.new.id);
+
           if (payload.old.workflow_stage_id !== payload.new.workflow_stage_id) {
             toast({
               title: 'Work Order Updated',
               description: `Work Order #${payload.new.work_order_number} moved to new stage`,
             });
           }
-          
+
           setLastUpdate(new Date());
         }
       )
@@ -146,20 +180,31 @@ export const useRealtimeWorkflow = (options: UseRealtimeWorkflowOptions) => {
         {
           event: 'DELETE',
           schema: 'public',
-          table: 'work_orders'
+          table: 'work_orders',
+          filter: subscriptionFilter || undefined,
         },
         (payload) => {
-          console.log('Work order deleted:', payload);
           setWorkOrders(prev => prev.filter(wo => wo.id !== payload.old.id));
           setLastUpdate(new Date());
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setConnectionStatus('connected');
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setConnectionStatus('error');
+        }
+      });
 
     return () => {
-      supabase.removeChannel(workOrdersChannel);
+      void workOrdersChannel.unsubscribe();
+      if (typeof supabase.removeChannel === 'function') {
+        supabase.removeChannel(workOrdersChannel);
+      }
     };
-  }, [options.locationId, options.technicianId, options.dateFrom, options.dateTo, toast]);
+  }, [fetchWorkOrders, hydrateWorkOrder, options.dateFrom, options.dateTo, options.locationId, options.technicianId, toast]);
 
   const moveWorkOrder = async (workOrderId: string, toStageId: string, notes?: string) => {
     try {
@@ -191,9 +236,7 @@ export const useRealtimeWorkflow = (options: UseRealtimeWorkflowOptions) => {
   };
 
   const refreshWorkOrders = async () => {
-    setLoading(true);
-    // The useEffect will handle the actual refetch
-    setTimeout(() => setLoading(false), 1000);
+    await fetchWorkOrders();
   };
 
   return {
@@ -201,6 +244,7 @@ export const useRealtimeWorkflow = (options: UseRealtimeWorkflowOptions) => {
     loading,
     error,
     lastUpdate,
+    connectionStatus,
     moveWorkOrder,
     refreshWorkOrders,
   };

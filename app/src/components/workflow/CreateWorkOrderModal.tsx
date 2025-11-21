@@ -21,6 +21,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { summarizeZodErrors } from "@/lib/validation";
+import { workOrderFormSchema } from "@/lib/validationSchemas";
 import { LoadingButton } from "@/components/shared/LoadingButton";
 import { format } from "date-fns";
 
@@ -420,6 +422,34 @@ export const CreateWorkOrderModal = ({
       return;
     }
 
+    const parsed = workOrderFormSchema.safeParse({
+      title: details.title,
+      description: details.description,
+      customerId: details.customerId,
+      vehicleId: details.vehicleId,
+      priority: details.priority as "low" | "normal" | "high" | "urgent",
+      workflowStageId: details.workflowStageId,
+      estimatedHours: Number(details.estimatedHours) || 0,
+      notes: details.notes,
+      lineItems,
+      assignment: {
+        technicianId: assignment.technicianId || undefined,
+        scheduledAt: assignment.scheduledAt || undefined,
+        promisedAt: assignment.promisedAt || undefined,
+      },
+    });
+
+    if (!parsed.success) {
+      toast({
+        title: "Validation failed",
+        description: summarizeZodErrors(parsed.error.issues),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload = parsed.data;
+
     setLoading(true);
 
     try {
@@ -454,17 +484,17 @@ export const CreateWorkOrderModal = ({
           org_id: orgId,
           work_order_number: nextNumber,
           created_by: user.id,
-          customer_id: details.customerId,
-          vehicle_id: details.vehicleId,
-          title: details.title,
-          description: details.description,
-          priority: details.priority,
-          workflow_stage_id: details.workflowStageId,
-          estimated_hours: details.estimatedHours,
-          notes: details.notes,
-          technician_id: assignment.technicianId || null,
-          scheduled_at: assignment.scheduledAt || null,
-          promised_at: assignment.promisedAt || null,
+          customer_id: payload.customerId,
+          vehicle_id: payload.vehicleId,
+          title: payload.title,
+          description: payload.description,
+          priority: payload.priority,
+          workflow_stage_id: payload.workflowStageId,
+          estimated_hours: payload.estimatedHours,
+          notes: payload.notes,
+          technician_id: payload.assignment.technicianId || null,
+          scheduled_at: payload.assignment.scheduledAt || null,
+          promised_at: payload.assignment.promisedAt || null,
           status: "DRAFT",
           stage_entered_at: new Date().toISOString(),
           subtotal: totals.subtotal,
@@ -478,8 +508,8 @@ export const CreateWorkOrderModal = ({
 
       const workOrderId = insertedWorkOrder.id;
 
-      if (lineItems.length > 0) {
-        const payload = lineItems.map((line, index) => ({
+      if (payload.lineItems.length > 0) {
+        const linePayload = payload.lineItems.map((line, index) => ({
           org_id: orgId,
           work_order_id: workOrderId,
           type: line.type,
@@ -495,7 +525,7 @@ export const CreateWorkOrderModal = ({
 
         const { error: lineError } = await supabase
           .from("work_order_items")
-          .insert(payload);
+          .insert(linePayload);
 
         if (lineError) throw lineError;
       }

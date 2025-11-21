@@ -25,6 +25,9 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, userData?: { first_name?: string; last_name?: string }) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<{ error: any }>;
+  updatePassword: (password: string) => Promise<{ error: any }>;
+  refreshSession: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 
@@ -61,6 +64,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) {
       const profileData = await fetchProfile(user.id);
       setProfile(profileData);
+    }
+  };
+
+  const refreshSession = async () => {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) {
+      toast({
+        title: "Session refresh failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      await signOut();
+      return;
+    }
+
+    if (data?.session) {
+      setSession(data.session);
+      setUser(data.session.user);
     }
   };
 
@@ -102,6 +123,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!session?.expires_at) return;
+
+    const msUntilRefresh = session.expires_at * 1000 - Date.now() - 2 * 60 * 1000;
+    const timeout = setTimeout(() => {
+      refreshSession();
+    }, Math.max(msUntilRefresh, 60 * 1000));
+
+    return () => clearTimeout(timeout);
+  }, [session?.expires_at]);
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -194,6 +226,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const requestPasswordReset = async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) {
+        toast({
+          title: "Reset request failed",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Password reset sent",
+          description: "Check your inbox for the reset link.",
+        });
+      }
+
+      return { error };
+    } catch (error: any) {
+      toast({
+        title: "Reset error",
+        description: "Unable to request password reset",
+        variant: "destructive",
+      });
+      return { error };
+    }
+  };
+
+  const updatePassword = async (password: string) => {
+    try {
+      const { data, error } = await supabase.auth.updateUser({ password });
+
+      if (error) {
+        toast({
+          title: "Password update failed",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else if (data?.user) {
+        toast({
+          title: "Password updated",
+          description: "Your password has been changed successfully.",
+        });
+      }
+
+      return { error };
+    } catch (error: any) {
+      toast({
+        title: "Password update error",
+        description: "Unable to update password",
+        variant: "destructive",
+      });
+      return { error };
+    }
+  };
+
   const value = {
     user,
     profile,
@@ -202,6 +292,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn,
     signUp,
     signOut,
+    requestPasswordReset,
+    updatePassword,
+    refreshSession,
     refreshProfile,
   };
 

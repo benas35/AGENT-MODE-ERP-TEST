@@ -13,6 +13,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { router } from "./app/router";
 import { AppSplash } from "./app/AppSplash";
+import { initMonitoring } from "./lib/monitoring";
+
+initMonitoring();
 
 const rootElement = document.getElementById("root");
 

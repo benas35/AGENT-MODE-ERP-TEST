@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 export interface WorkOrder {
@@ -34,11 +35,13 @@ export interface WorkOrder {
   } | null;
   technician?: {
     display_name?: string;
+    name?: string;
   } | null;
   workflow_stage?: {
     name: string;
     color: string;
   };
+  total?: number;
 }
 
 interface UseWorkOrdersOptions {
@@ -46,30 +49,50 @@ interface UseWorkOrdersOptions {
   technicianId?: string;
   dateFrom: Date;
   dateTo: Date;
+  status?: string | null;
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export const useWorkOrders = (options: UseWorkOrdersOptions) => {
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.max(1, options.pageSize ?? 20);
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const queryKey = [
+    'work-orders',
+    options.locationId,
+    options.technicianId,
+    options.dateFrom.toISOString(),
+    options.dateTo.toISOString(),
+    options.status ?? null,
+    options.search?.trim().toLowerCase() ?? null,
+    page,
+    pageSize,
+  ];
+
+  const selectColumns = `
+    *,
+    customer:customers(first_name, last_name, phone, email),
+    vehicle:vehicles(year, make, model, license_plate),
+    technician:resources!work_orders_technician_id_fkey(id, name),
+    workflow_stage:workflow_stages(name, color)
+  `;
 
   const fetchWorkOrders = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    const search = options.search?.trim();
 
-      // Fetch work orders with basic joins
-      let query = supabase
-        .from('work_orders')
-        .select(`
-          *,
-          customer:customers(first_name, last_name, phone, email),
-          vehicle:vehicles(year, make, model, license_plate),
-          workflow_stage:workflow_stages(name, color)
-        `)
-        .gte('created_at', options.dateFrom.toISOString())
-        .lte('created_at', options.dateTo.toISOString())
-        .order('created_at', { ascending: false });
+    let query = supabase
+      .from('work_orders')
+      .select(selectColumns, { count: 'exact' })
+      .gte('created_at', options.dateFrom.toISOString())
+      .lte('created_at', options.dateTo.toISOString())
+      .order('created_at', { ascending: false })
+      .range(from, to);
 
       if (options.locationId) {
         query = query.eq('location_id', options.locationId);
@@ -79,50 +102,55 @@ export const useWorkOrders = (options: UseWorkOrdersOptions) => {
         query = query.eq('technician_id', options.technicianId);
       }
 
-      const { data, error: fetchError } = await query;
-
-      if (fetchError) {
-        console.error('Error fetching work orders:', fetchError);
-        setError(fetchError.message);
-        setWorkOrders([]);
-        return;
-      }
-
-      const workOrderRows = (data ?? []) as WorkOrder[];
-      const workOrdersWithTech = await Promise.all(
-        workOrderRows.map(async (workOrder) => {
-          if (!workOrder.technician_id) {
-            return { ...workOrder, technician: null } satisfies WorkOrder;
-          }
-
-          const { data: resource } = await supabase
-            .from("resources")
-            .select("name")
-            .eq("id", workOrder.technician_id)
-            .eq("type", "TECHNICIAN")
-            .maybeSingle();
-
-          const technician = resource?.name
-            ? { display_name: resource.name as string }
-            : null;
-
-          return { ...workOrder, technician } satisfies WorkOrder;
-        }),
-      );
-
-      setWorkOrders(workOrdersWithTech);
-    } catch (err) {
-      console.error('Error in fetchWorkOrders:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setWorkOrders([]);
-    } finally {
-      setLoading(false);
+    if (options.status) {
+      query = query.eq('status', options.status);
     }
-  }, [options.locationId, options.technicianId, options.dateFrom, options.dateTo]);
 
-  useEffect(() => {
-    fetchWorkOrders();
-  }, [fetchWorkOrders]);
+    if (search) {
+      query = query.or(
+        [
+          `work_order_number.ilike.%${search}%`,
+          `title.ilike.%${search}%`,
+          `description.ilike.%${search}%`,
+        ].join(',')
+      );
+    }
+
+    const { data, error: fetchError, count } = await query;
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    const workOrderRows = (data ?? []) as WorkOrder[];
+    const normalizedWorkOrders = workOrderRows.map((workOrder) => ({
+      ...workOrder,
+      technician: workOrder.technician
+        ? {
+            ...workOrder.technician,
+            display_name:
+              (workOrder.technician as { display_name?: string; name?: string }).display_name ??
+              (workOrder.technician as { display_name?: string; name?: string }).name,
+          }
+        : null,
+    }));
+
+    return {
+      workOrders: normalizedWorkOrders,
+      total: count ?? workOrderRows.length,
+    };
+  }, [from, to, options.dateFrom, options.dateTo, options.locationId, options.technicianId, options.status, options.search, selectColumns]);
+
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey,
+    queryFn: fetchWorkOrders,
+    keepPreviousData: true,
+  });
 
   const moveWorkOrder = async (workOrderId: string, toStageId: string, notes?: string) => {
     try {
@@ -137,12 +165,7 @@ export const useWorkOrders = (options: UseWorkOrdersOptions) => {
         throw error;
       }
 
-      // Optimistically update local state
-      setWorkOrders(prev => prev.map(wo => 
-        wo.id === workOrderId 
-          ? { ...wo, workflow_stage_id: toStageId, stage_entered_at: new Date().toISOString() }
-          : wo
-      ));
+      queryClient.invalidateQueries({ queryKey });
     } catch (error) {
       console.error('Error in moveWorkOrder:', error);
       throw error;
@@ -150,10 +173,14 @@ export const useWorkOrders = (options: UseWorkOrdersOptions) => {
   };
 
   return {
-    workOrders,
-    loading,
-    error,
+    workOrders: data?.workOrders ?? [],
+    totalCount: data?.total ?? 0,
+    totalPages: Math.max(1, Math.ceil((data?.total ?? 0) / pageSize)),
+    page,
+    pageSize,
+    loading: isLoading,
+    error: error ? (error as Error).message : null,
     moveWorkOrder,
-    refreshWorkOrders: fetchWorkOrders,
+    refreshWorkOrders: refetch,
   };
 };
