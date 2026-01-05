@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Mail } from "lucide-react";
+import { Lock, Mail } from "lucide-react";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,42 +9,52 @@ import { toast } from "@/hooks/use-toast";
 
 export function SignIn() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<{ email?: string; password?: string; form?: string }>({});
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const trimmed = email.trim();
+    const trimmedPassword = password.trim();
+    const nextErrors: typeof errors = {};
+
     if (!trimmed) {
-      setError("Email is required");
+      nextErrors.email = "Email is required";
+    }
+
+    if (!trimmedPassword) {
+      nextErrors.password = "Password is required";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors);
       return;
     }
 
     setSubmitting(true);
-    setError(null);
+    setErrors({});
 
     try {
-      const { error: signInError } = await getSupabaseClient().auth.signInWithOtp({
+      const { error: signInError } = await getSupabaseClient().auth.signInWithPassword({
         email: trimmed,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-        },
+        password: trimmedPassword,
       });
 
       if (signInError) {
         console.error("Supabase sign-in error", signInError);
-        setError(signInError.message);
+        setErrors({ form: signInError.message });
         return;
       }
 
       toast({
-        title: "Check your email",
-        description: "We've sent a sign-in link to your inbox.",
+        title: "Signed in",
+        description: "Welcome back! Redirecting to your workspace.",
       });
     } catch (unexpected) {
       console.error("Unexpected Supabase sign-in error", unexpected);
-      setError("We couldn't start the sign-in flow. Please try again.");
+      setErrors({ form: "We couldn't sign you in. Please try again." });
     } finally {
       setSubmitting(false);
     }
@@ -55,7 +65,7 @@ export function SignIn() {
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-2 text-center">
           <CardTitle className="text-xl">Welcome back</CardTitle>
-          <CardDescription>Sign in with your work email to continue.</CardDescription>
+          <CardDescription>Sign in with your email and password to continue.</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit} noValidate>
@@ -76,10 +86,32 @@ export function SignIn() {
                   required
                 />
               </div>
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {errors.email ? <p className="text-sm text-destructive">{errors.email}</p> : null}
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="signin-password">Password</Label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="signin-password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="pl-10"
+                  disabled={submitting}
+                  required
+                />
+              </div>
+              {errors.password ? <p className="text-sm text-destructive">{errors.password}</p> : null}
+            </div>
+
+            {errors.form ? <p className="text-sm text-destructive">{errors.form}</p> : null}
+
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? "Sending magic link…" : "Send magic link"}
+              {submitting ? "Signing in…" : "Sign in"}
             </Button>
           </form>
         </CardContent>
