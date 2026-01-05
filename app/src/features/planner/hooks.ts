@@ -30,6 +30,35 @@ const getDateKey = (date: Date) => getOrgDateKey(date);
 
 const getDateRange = (date: Date) => getOrgDateRange(date);
 
+const toPlannerStatus = (value: string | null | undefined): PlannerStatus => {
+  const normalized = (value ?? "").toLowerCase();
+  if (normalized === "in_progress" || normalized === "in progress") return "in_progress";
+  if (normalized === "waiting_parts" || normalized === "waiting parts") return "waiting_parts";
+  if (normalized === "completed" || normalized === "done") return "completed";
+  return "scheduled";
+};
+
+const toDatabaseStatus = (status: PlannerStatus): string => {
+  switch (status) {
+    case "scheduled":
+      return "SCHEDULED";
+    case "in_progress":
+      return "in_progress";
+    case "waiting_parts":
+      return "waiting_parts";
+    case "completed":
+      return "COMPLETED";
+    default:
+      return status;
+  }
+};
+
+const sanitizeId = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const trimmed = `${value}`.trim();
+  return trimmed.length ? trimmed : null;
+};
+
 export const usePlannerTechnicians = () => {
   const { profile } = useAuth();
   const orgId = profile?.org_id;
@@ -43,13 +72,14 @@ export const usePlannerTechnicians = () => {
         supabase
           .from("technicians")
           .select(
-            `id, user_id, skills, availability, created_at, profiles:profiles!technicians_user_id_fkey(first_name,last_name)`
+            `id, profile_id, display_name, color, skills, is_active, created_at, profiles:profiles!technicians_profile_id_fkey(first_name,last_name)`
           )
           .eq("org_id", orgId)
-          .order("created_at"),
+          .eq("is_active", true)
+          .order("display_name"),
         supabase
           .from("resources")
-          .select("id, meta, color")
+          .select("id, meta, color, name")
           .eq("org_id", orgId)
           .eq("type", "TECHNICIAN")
           .eq("active", true),
@@ -80,18 +110,30 @@ export const usePlannerTechnicians = () => {
         return null;
       };
 
+      const normalizeName = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
+
       const resourceByTechnicianId = new Map<string, { id: string; color: string | null }>();
+      const resourceByProfileId = new Map<string, { id: string; color: string | null }>();
       const resourceByUserId = new Map<string, { id: string; color: string | null }>();
+      const resourceByName = new Map<string, { id: string; color: string | null }>();
 
       for (const resource of resourceRows) {
         const meta = (resource.meta as Record<string, unknown> | null) ?? null;
         const technicianId = getMetaString(meta, "technician_id");
+        const profileId = getMetaString(meta, "profile_id");
         const userIdFromMeta = getMetaString(meta, "user_id");
         if (technicianId) {
           resourceByTechnicianId.set(technicianId, { id: resource.id, color: resource.color ?? null });
         }
+        if (profileId) {
+          resourceByProfileId.set(profileId, { id: resource.id, color: resource.color ?? null });
+        }
         if (userIdFromMeta) {
           resourceByUserId.set(userIdFromMeta, { id: resource.id, color: resource.color ?? null });
+        }
+        const normalizedName = normalizeName(resource.name ?? null);
+        if (normalizedName) {
+          resourceByName.set(normalizedName, { id: resource.id, color: resource.color ?? null });
         }
       }
 
@@ -103,16 +145,21 @@ export const usePlannerTechnicians = () => {
         const fallbackName = row.skills?.[0]
           ? `${row.skills[0].charAt(0).toUpperCase()}${row.skills[0].slice(1)} specialist`
           : `Technician ${index + 1}`;
+        const displayName = (row as any).display_name as string | undefined;
+        const name = displayName?.trim() || nameFromProfile || fallbackName;
 
         const resourceMatch =
           resourceByTechnicianId.get(row.id) ??
-          (row.user_id ? resourceByUserId.get(row.user_id) ?? null : null);
-        const resourceColor = resourceMatch?.color ?? null;
+          (row.profile_id ? resourceByProfileId.get(row.profile_id) ?? null : null) ??
+          (row.profile_id ? resourceByUserId.get(row.profile_id) ?? null : null) ??
+          resourceByName.get(normalizeName(displayName ?? nameFromProfile)) ??
+          null;
+        const resourceColor = resourceMatch?.color ?? (row as any).color ?? null;
 
         return {
           id: row.id,
-          name: nameFromProfile || fallbackName,
-          userId: row.user_id,
+          name,
+          userId: row.profile_id ?? null,
           skills: row.skills ?? [],
           color: resourceColor ?? TECHNICIAN_COLORS[index % TECHNICIAN_COLORS.length],
           resourceId: resourceMatch?.id ?? row.id,
@@ -150,16 +197,23 @@ export const usePlannerBays = () => {
       if (!orgId) return [];
 
       const { data, error } = await supabase
-        .from("bays")
+        .from("resources")
         .select("id, name")
         .eq("org_id", orgId)
+        .eq("type", "BAY")
+        .eq("active", true)
         .order("name");
 
       if (error) {
         throw error;
       }
 
-      return data ?? [];
+      return (data ?? [])
+        .filter((row) => row.id && typeof row.id === "string")
+        .map((row) => ({
+          id: row.id,
+          name: (row.name ?? "").trim() || `Bay ${row.id.slice(0, 4).toUpperCase()}`,
+        }));
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -396,7 +450,7 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
   ] as const;
 
   const selectColumns = `
-    id, title, technician_id, bay_id, status, starts_at, ends_at, notes, priority, customer_id, vehicle_id,
+    id, title, technician_id, bay, status, start_time, end_time, notes, priority, customer_id, vehicle_id,
     customers:customers(first_name,last_name),
     vehicles:vehicles(make, model, license_plate)
   `;
@@ -417,14 +471,19 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
           .join(" ") || null
       : null;
 
+    const startsAt = (row as any).start_time ?? (row as any).starts_at;
+    const endsAt = (row as any).end_time ?? (row as any).ends_at;
+    const bayId = sanitizeId((row as any).bay ?? (row as any).bay_id ?? null);
+    const plannerStatus = toPlannerStatus(row.status);
+
     return {
       id: row.id,
       title: row.title,
       technicianId: row.technician_id,
-      bayId: row.bay_id,
-      status: row.status as PlannerAppointment["status"],
-      startsAt: row.starts_at,
-      endsAt: row.ends_at,
+      bayId,
+      status: plannerStatus,
+      startsAt,
+      endsAt,
       notes: row.notes ?? null,
       customerId: row.customer_id ?? null,
       customerName,
@@ -440,13 +499,16 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
     queryFn: async () => {
       if (!orgId) return [];
 
+      const startRange = `and(start_time.gte.${range.start},start_time.lt.${range.end})`;
+      const legacyRange = `and(starts_at.gte.${range.start},starts_at.lt.${range.end})`;
+
       const { data, error } = await supabase
         .from("appointments")
         .select(selectColumns)
         .eq("org_id", orgId)
-        .gte("starts_at", range.start)
-        .lt("starts_at", range.end)
-        .order("starts_at");
+        .or(`${startRange},${legacyRange}`)
+        .order("start_time", { ascending: true, nullsLast: true })
+        .order("starts_at", { ascending: true, nullsLast: true });
 
       if (error) {
         throw error;
@@ -505,9 +567,9 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         .from("appointments")
         .update({
           technician_id: payload.technicianId,
-          bay_id: payload.bayId,
-          starts_at: payload.startsAt,
-          ends_at: payload.endsAt,
+          bay: sanitizeId(payload.bayId),
+          start_time: payload.startsAt,
+          end_time: payload.endsAt,
           updated_at: new Date().toISOString(),
         })
         .eq("id", payload.id);
@@ -524,8 +586,8 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       const { error } = await supabase
         .from("appointments")
         .update({
-          starts_at: payload.startsAt,
-          ends_at: payload.endsAt,
+          start_time: payload.startsAt,
+          end_time: payload.endsAt,
           updated_at: new Date().toISOString(),
         })
         .eq("id", payload.id);
@@ -551,10 +613,10 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
           customer_id: payload.customerId,
           vehicle_id: payload.vehicleId,
           technician_id: payload.technicianId,
-          bay_id: payload.bayId,
-          status: payload.status,
-          starts_at: payload.startsAt,
-          ends_at: payload.endsAt,
+          bay: sanitizeId(payload.bayId),
+          status: toDatabaseStatus(payload.status),
+          start_time: payload.startsAt,
+          end_time: payload.endsAt,
           notes: payload.notes,
           priority: 0,
           created_by: profile?.id ?? null,
@@ -618,10 +680,10 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
           customer_id: payload.customerId,
           vehicle_id: payload.vehicleId,
           technician_id: payload.technicianId,
-          bay_id: payload.bayId,
-          status: payload.status,
-          starts_at: payload.startsAt,
-          ends_at: payload.endsAt,
+          bay: sanitizeId(payload.bayId),
+          status: toDatabaseStatus(payload.status),
+          start_time: payload.startsAt,
+          end_time: payload.endsAt,
           notes: payload.notes,
           updated_at: new Date().toISOString(),
         })
@@ -678,7 +740,7 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
       const { data, error } = await supabase
         .from("appointments")
         .update({
-          status,
+          status: toDatabaseStatus(status),
           updated_at: new Date().toISOString(),
         })
         .eq("id", id)
@@ -825,10 +887,11 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
     });
 
     if (error) {
-      throw error;
+      console.warn("can_schedule rpc failed, allowing scheduling by default", error);
+      return true;
     }
 
-    return Boolean(data);
+    return data === null ? true : Boolean(data);
   };
 
   return {

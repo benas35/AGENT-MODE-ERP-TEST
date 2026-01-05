@@ -77,7 +77,7 @@ const Planner = () => {
     void appointmentsQuery.refetch();
   };
 
-  const bayValue = selectedBayId ?? "all";
+  const bayValue = selectedBayId && selectedBayId.trim() !== "" ? selectedBayId : "all";
 
   const laneOverlays = useMemo(() => {
     const overlays: Record<
@@ -208,7 +208,7 @@ const Planner = () => {
         <span className="text-xs text-muted-foreground">Times shown in Europe/Vilnius</span>
         <Select
           value={bayValue}
-          onValueChange={(value) => setSelectedBayId(value === "all" ? null : value)}
+          onValueChange={(value) => setSelectedBayId(value === "all" || value.trim() === "" ? null : value)}
           disabled={baysQuery.isLoading && bayOptions.length === 0}
         >
           <SelectTrigger className="w-[200px]" aria-label="Filter by bay">
