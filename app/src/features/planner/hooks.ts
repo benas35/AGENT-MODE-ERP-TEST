@@ -53,6 +53,12 @@ const toDatabaseStatus = (status: PlannerStatus): string => {
   }
 };
 
+const sanitizeId = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const trimmed = `${value}`.trim();
+  return trimmed.length ? trimmed : null;
+};
+
 export const usePlannerTechnicians = () => {
   const { profile } = useAuth();
   const orgId = profile?.org_id;
@@ -202,7 +208,12 @@ export const usePlannerBays = () => {
         throw error;
       }
 
-      return (data ?? []).map((row) => ({ id: row.id, name: row.name }));
+      return (data ?? [])
+        .filter((row) => row.id && typeof row.id === "string")
+        .map((row) => ({
+          id: row.id,
+          name: (row.name ?? "").trim() || `Bay ${row.id.slice(0, 4).toUpperCase()}`,
+        }));
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -462,13 +473,14 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
 
     const startsAt = (row as any).start_time ?? (row as any).starts_at;
     const endsAt = (row as any).end_time ?? (row as any).ends_at;
+    const bayId = sanitizeId((row as any).bay ?? (row as any).bay_id ?? null);
     const plannerStatus = toPlannerStatus(row.status);
 
     return {
       id: row.id,
       title: row.title,
       technicianId: row.technician_id,
-      bayId: (row as any).bay ?? (row as any).bay_id ?? null,
+      bayId,
       status: plannerStatus,
       startsAt,
       endsAt,
@@ -487,13 +499,16 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
     queryFn: async () => {
       if (!orgId) return [];
 
+      const startRange = `and(start_time.gte.${range.start},start_time.lt.${range.end})`;
+      const legacyRange = `and(starts_at.gte.${range.start},starts_at.lt.${range.end})`;
+
       const { data, error } = await supabase
         .from("appointments")
         .select(selectColumns)
         .eq("org_id", orgId)
-        .gte("start_time", range.start)
-        .lt("start_time", range.end)
-        .order("start_time");
+        .or(`${startRange},${legacyRange}`)
+        .order("start_time", { ascending: true, nullsLast: true })
+        .order("starts_at", { ascending: true, nullsLast: true });
 
       if (error) {
         throw error;
@@ -552,7 +567,7 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
         .from("appointments")
         .update({
           technician_id: payload.technicianId,
-          bay: payload.bayId,
+          bay: sanitizeId(payload.bayId),
           start_time: payload.startsAt,
           end_time: payload.endsAt,
           updated_at: new Date().toISOString(),
@@ -598,7 +613,7 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
           customer_id: payload.customerId,
           vehicle_id: payload.vehicleId,
           technician_id: payload.technicianId,
-          bay: payload.bayId,
+          bay: sanitizeId(payload.bayId),
           status: toDatabaseStatus(payload.status),
           start_time: payload.startsAt,
           end_time: payload.endsAt,
@@ -665,7 +680,7 @@ export const usePlannerAppointments = (date: Date, options: UsePlannerAppointmen
           customer_id: payload.customerId,
           vehicle_id: payload.vehicleId,
           technician_id: payload.technicianId,
-          bay: payload.bayId,
+          bay: sanitizeId(payload.bayId),
           status: toDatabaseStatus(payload.status),
           start_time: payload.startsAt,
           end_time: payload.endsAt,
