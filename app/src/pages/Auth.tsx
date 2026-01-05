@@ -6,24 +6,14 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { Wrench, Mail, Lock, User } from 'lucide-react';
+import { Wrench, Mail, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { z } from 'zod';
 
-const signInSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-});
-
 const signUpSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string(),
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
 });
 
 export default function Auth() {
@@ -53,25 +43,17 @@ export default function Auth() {
     const formData = new FormData(e.currentTarget);
     const data = {
       email: formData.get('email') as string,
-      password: formData.get('password') as string,
     };
 
     try {
-      const validation = signInSchema.safeParse(data);
-      if (!validation.success) {
-        const fieldErrors: Record<string, string> = {};
-        validation.error.errors.forEach((error) => {
-          if (error.path[0]) {
-            fieldErrors[error.path[0] as string] = error.message;
-          }
-        });
-        setErrors(fieldErrors);
+      if (!data.email || !z.string().email().safeParse(data.email).success) {
+        setErrors({ email: 'Invalid email address' });
         return;
       }
 
-      await signIn(data.email, data.password);
+      await signIn(data.email);
     } catch (error) {
-      console.error('Sign in error:', error);
+      console.error('Magic link error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -85,8 +67,6 @@ export default function Auth() {
     const formData = new FormData(e.currentTarget);
     const data = {
       email: formData.get('email') as string,
-      password: formData.get('password') as string,
-      confirmPassword: formData.get('confirmPassword') as string,
       first_name: formData.get('first_name') as string,
       last_name: formData.get('last_name') as string,
     };
@@ -104,7 +84,7 @@ export default function Auth() {
         return;
       }
 
-      await signUp(data.email, data.password, {
+      await signUp(data.email, undefined, {
         first_name: data.first_name,
         last_name: data.last_name,
       });
@@ -133,14 +113,14 @@ export default function Auth() {
         <CardContent>
           <Tabs defaultValue="signin" className="space-y-4">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              <TabsTrigger value="signin">Magic Link</TabsTrigger>
+              <TabsTrigger value="signup">Request Access</TabsTrigger>
             </TabsList>
 
             <TabsContent value="signin">
               <form onSubmit={handleSignIn} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signin-email">Email</Label>
+                  <Label htmlFor="signin-email">Email (we'll send a magic link)</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                     <Input
@@ -155,28 +135,12 @@ export default function Auth() {
                   {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signin-password">Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                    <Input
-                      id="signin-password"
-                      name="password"
-                      type="password"
-                      placeholder="••••••••"
-                      className="pl-10"
-                      required
-                    />
-                  </div>
-                  {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
-                </div>
-
                 <Button 
                   type="submit" 
                   className="w-full" 
                   disabled={isLoading}
                 >
-                  {isLoading ? "Signing In..." : "Sign In"}
+                  {isLoading ? "Sending link..." : "Send magic link"}
                 </Button>
               </form>
             </TabsContent>
@@ -227,44 +191,12 @@ export default function Auth() {
                   {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                    <Input
-                      id="signup-password"
-                      name="password"
-                      type="password"
-                      placeholder="••••••••"
-                      className="pl-10"
-                      required
-                    />
-                  </div>
-                  {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="signup-confirm-password">Confirm Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                    <Input
-                      id="signup-confirm-password"
-                      name="confirmPassword"
-                      type="password"
-                      placeholder="••••••••"
-                      className="pl-10"
-                      required
-                    />
-                  </div>
-                  {errors.confirmPassword && <p className="text-sm text-destructive">{errors.confirmPassword}</p>}
-                </div>
-
                 <Button 
                   type="submit" 
                   className="w-full" 
                   disabled={isLoading}
                 >
-                  {isLoading ? "Creating Account..." : "Create Account"}
+                  {isLoading ? "Sending link..." : "Send magic link"}
                 </Button>
               </form>
             </TabsContent>
@@ -274,9 +206,8 @@ export default function Auth() {
         <CardFooter className="flex flex-col space-y-4">
           <Separator />
           <div className="text-center text-sm text-muted-foreground">
-            <p>Demo Accounts:</p>
+            <p>Demo Accounts (use magic link):</p>
             <p className="font-mono text-xs">owner@demo.com / technician@demo.com</p>
-            <p className="font-mono text-xs">Password: demo123</p>
           </div>
         </CardFooter>
       </Card>
