@@ -249,10 +249,13 @@ export type Database = {
           customer_id: string | null
           vehicle_id: string | null
           technician_id: string | null
+          bay: string | null
           bay_id: string | null
           status: string
-          starts_at: string
-          ends_at: string
+          start_time: string
+          end_time: string
+          starts_at: string | null
+          ends_at: string | null
           notes: string | null
           priority: number | null
           created_by: string | null
@@ -266,10 +269,13 @@ export type Database = {
           customer_id?: string | null
           vehicle_id?: string | null
           technician_id?: string | null
+          bay?: string | null
           bay_id?: string | null
           status?: string
-          starts_at: string
-          ends_at: string
+          start_time: string
+          end_time: string
+          starts_at?: string | null
+          ends_at?: string | null
           notes?: string | null
           priority?: number | null
           created_by?: string | null
@@ -283,10 +289,13 @@ export type Database = {
           customer_id?: string | null
           vehicle_id?: string | null
           technician_id?: string | null
+          bay?: string | null
           bay_id?: string | null
           status?: string
-          starts_at?: string
-          ends_at?: string
+          start_time?: string
+          end_time?: string
+          starts_at?: string | null
+          ends_at?: string | null
           notes?: string | null
           priority?: number | null
           created_by?: string | null
@@ -3641,33 +3650,68 @@ dvi_signatures
         Row: {
           id: string
           org_id: string
+          location_id: string | null
+          profile_id: string | null
+          display_name: string
+          color: string | null
           user_id: string | null
           skills: string[] | null
           availability: Json | null
           created_at: string | null
+          updated_at: string | null
+          is_active: boolean | null
+          capacity_minutes: number | null
         }
         Insert: {
           id?: string
           org_id: string
+          location_id?: string | null
+          profile_id?: string | null
+          display_name: string
+          color?: string | null
           user_id?: string | null
           skills?: string[] | null
           availability?: Json | null
           created_at?: string | null
+          updated_at?: string | null
+          is_active?: boolean | null
+          capacity_minutes?: number | null
         }
         Update: {
           id?: string
           org_id?: string
+          location_id?: string | null
+          profile_id?: string | null
+          display_name?: string
+          color?: string | null
           user_id?: string | null
           skills?: string[] | null
           availability?: Json | null
           created_at?: string | null
+          updated_at?: string | null
+          is_active?: boolean | null
+          capacity_minutes?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "technicians_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "technicians_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "technicians_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
