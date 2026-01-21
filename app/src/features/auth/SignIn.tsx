@@ -25,7 +25,8 @@ export function SignIn() {
     setError(null);
 
     try {
-      const { error: signInError } = await getSupabaseClient().auth.signInWithOtp({
+      const client = getSupabaseClient();
+      const { error: signInError } = await client.auth.signInWithOtp({
         email: trimmed,
         options: {
           emailRedirectTo: `${window.location.origin}/`,
@@ -44,7 +45,11 @@ export function SignIn() {
       });
     } catch (unexpected) {
       console.error("Unexpected Supabase sign-in error", unexpected);
-      setError("We couldn't start the sign-in flow. Please try again.");
+      if (unexpected instanceof Error) {
+        setError(unexpected.message);
+      } else {
+        setError("We couldn't start the sign-in flow. Please try again.");
+      }
     } finally {
       setSubmitting(false);
     }
