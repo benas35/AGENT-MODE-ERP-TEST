@@ -30,9 +30,10 @@ export default function Auth() {
   const { user, loading, signIn, signUp } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const authDisabled = String(import.meta.env.VITE_DISABLE_AUTH).toLowerCase() === "true";
 
   // Redirect if already authenticated
-  if (user && !loading) {
+  if ((user && !loading) || authDisabled) {
     return <Navigate to="/" replace />;
   }
 

@@ -7,7 +7,12 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requiredRoles }: ProtectedRouteProps) {
+  const authDisabled = String(import.meta.env.VITE_DISABLE_AUTH).toLowerCase() === "true";
   const { user, profile, loading } = useAuth();
+
+  if (authDisabled) {
+    return <>{children}</>;
+  }
 
   // Show loading while checking auth state
   if (loading) {

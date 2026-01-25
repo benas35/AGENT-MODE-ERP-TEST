@@ -10,10 +10,16 @@ interface AuthGateProps {
 }
 
 export function AuthGate({ children }: AuthGateProps) {
+  const authDisabled = String(import.meta.env.VITE_DISABLE_AUTH).toLowerCase() === "true";
   const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
+    if (authDisabled) {
+      setInitializing(false);
+      return;
+    }
+
     const client = getSupabaseClient();
     let cancelled = false;
 
@@ -42,9 +48,13 @@ export function AuthGate({ children }: AuthGateProps) {
       cancelled = true;
       listener.subscription.unsubscribe();
     };
-  }, []);
+  }, [authDisabled]);
 
-  useSupabaseHealth(!initializing && Boolean(session));
+  useSupabaseHealth(!initializing && Boolean(session) && !authDisabled);
+
+  if (authDisabled) {
+    return <>{children}</>;
+  }
 
   if (initializing) {
     return (
